@@ -1626,7 +1626,7 @@ const INTEG_RUN_SCHEMA = {
       "items": {
         "type": "string"
       },
-      "description": "apra-fleet-jfo: verify-set bead ids (any issue_type, Step 1b) closed this run. Optional for backward compatibility -- absent/omitted on a dispatch that named no verify-set ids."
+      "description": "Verify-set bead ids (any issue_type, Step 1b) closed this run. Optional for backward compatibility -- absent/omitted on a dispatch that named no verify-set ids."
     },
     "verifySetLeftOpen": {
       "type": "array",
@@ -1645,7 +1645,7 @@ const INTEG_RUN_SCHEMA = {
           }
         }
       },
-      "description": "apra-fleet-jfo: verify-set bead ids (Step 1b) left open this run, with why (gap bug filed, or inconclusive). Optional for backward compatibility."
+      "description": "Verify-set bead ids (Step 1b) left open this run, with why (gap bug filed, or inconclusive). Optional for backward compatibility."
     },
     "observedFailures": {
       "type": "array",
