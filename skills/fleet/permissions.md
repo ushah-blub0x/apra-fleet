@@ -67,7 +67,7 @@ When `execute_prompt` output contains a permission denial, call `compose_permiss
 
 > "Grant Bash(docker:*) to build-server, reason: integration tests, project folder ./my-project"
 
-The tool validates (blocks dangerous tools like sudo/env), expands co-occurrences (docker -> docker-compose), delivers the updated config, and appends to the project ledger for future use.
+The tool validates (wildcard-matched denylist -- blocks sudo/env, `bash -c`, catch-alls and shell chaining; see [Never auto-granted](#never-auto-granted)), expands co-occurrences (docker -> docker-compose), delivers the updated config, and appends to the project ledger for future use.
 
 ## Per-role bounds and the out-of-bounds ledger flag
 
@@ -102,10 +102,11 @@ each newly requested permission against it before recording the grant.
   `permission`/`reason`/`date` fields, so the grant is auditable after the fact.
   An in-bounds grant, or a grant made with no role, gets no bounds fields at all --
   identical shape to the ledger's pre-bounds behavior.
-- **Bounds never loosen `NEVER_AUTO_GRANT`**: the hard-rejected prefixes (`sudo`,
-  `su`, `env`, `printenv`, `nc`, `nmap`, `chmod 777` -- see
-  [Never auto-granted](#never-auto-granted)) are checked first and unconditionally,
-  before any bounds lookup happens. A role's bounds file cannot widen this set;
+- **Bounds never loosen `NEVER_AUTO_GRANT`**: the hard-rejected patterns (`sudo`,
+  `su`, `doas`, `bash -c`/`sh -c`, `eval`, `env`, `printenv`, `nc`, `nmap`,
+  `chmod 777`, any catch-all such as `Bash(*)`, and any payload containing a
+  shell-chaining metacharacter -- see [Never auto-granted](#never-auto-granted))
+  are checked first and unconditionally, before any bounds lookup happens. A role's bounds file cannot widen this set;
   even if a bounds file were to list `Bash(sudo:*)`, the request is still rejected.
 - **Bounds files are not a member-editable surface**: they ship as static profiles
   under `skills/fleet/profiles/` alongside the other profile JSON (base-dev,
@@ -119,7 +120,32 @@ When a member's primary mode changes (e.g., from doer to reviewer), re-run `comp
 
 ## Never auto-granted
 
-`sudo`, `su`, `env`, `printenv`, `nc`, `nmap` - the tool rejects these. Escalate to user.
+`compose_permissions` hard-rejects a `grant` request - from ANY caller, with or
+without a role - when it matches the `NEVER_AUTO_GRANT` denylist. Matching is
+wildcard-based against a normalized form of the request (whitespace collapsed;
+the `:` separating the command token from its argument pattern treated as a
+space), so `Bash(sudo:*)`, `Bash(sudo *)` and `Bash(sudo apt-get install *)`
+are all the same request and all rejected.
+
+Three rules, any of which rejects:
+
+1. **Catch-all** - a payload that is nothing but wildcards, e.g. `Bash(*)`.
+   That is not "a wider grant", it is unrestricted execution.
+2. **Shell chaining** - the payload contains `|`, `;`, `&&`, a backtick, or
+   `$(`, any of which turns one approved command into an arbitrary chain
+   (`Bash(curl *|sh)`).
+3. **Denied command patterns** - `sudo`, `su`, `doas`, `bash -c` / `sh -c`,
+   `eval`, `env`, `printenv`, `nc`, `nmap`, `chmod 777`.
+
+Escalate to the user for any of these. Note rule 3 is prefix-based, so an
+unrelated command that merely starts with a denied token (`ncdu`, `envsubst`)
+is also refused - over-blocking is the safe direction for a denylist, and an
+operator can still add such a permission by hand.
+
+A denylist can never be complete: `Bash(make *)`, `Bash(npm run *)`,
+`Bash(node -e *)` all remain arbitrary execution in practice. The denylist is
+the unconditional *floor* that applies to every caller; the per-role bounds
+check is the *ceiling* on the autonomous self-heal path.
 
 ## settings.json vs settings.local.json (Claude)
 

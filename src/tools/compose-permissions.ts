@@ -14,7 +14,7 @@ import type { Agent } from '../types.js';
 
 export const composePermissionsSchema = z.object({
   ...memberIdentifier,
-  role: z.enum(['doer', 'reviewer', 'deployer', 'integ-test-runner', 'regression-test-runner']).optional().describe('Role determines base profile (doer = broad build/test, reviewer = read + feedback + test); deployer, integ-test-runner and regression-test-runner select their own base-dev/base-reviewer mode plus a matching bounds-<role>.json profile. When a `grant` request carries a role, each newly requested permission is checked against that role\'s bounds-<role>.json (skills/fleet/profiles/); an out-of-bounds permission is still granted, never blocked, but its ledger entry is flagged outOfBounds:true with requestedByRole recorded for later audit. Bounds never loosen the hard-rejected NEVER_AUTO_GRANT prefixes (sudo, su, env, printenv, nc, nmap, chmod 777). No role, or a role with no bounds file, skips the bounds check entirely. Provide at least one of role or tags.'),
+  role: z.enum(['doer', 'reviewer', 'deployer', 'integ-test-runner', 'regression-test-runner']).optional().describe('Role determines base profile (doer = broad build/test, reviewer = read + feedback + test); deployer, integ-test-runner and regression-test-runner select their own base-dev/base-reviewer mode plus a matching bounds-<role>.json profile. When a `grant` request carries a role, each newly requested permission is checked against that role\'s bounds-<role>.json (skills/fleet/profiles/); an out-of-bounds permission is still granted, never blocked, but its ledger entry is flagged outOfBounds:true with requestedByRole recorded for later audit. Bounds never loosen the hard-rejected NEVER_AUTO_GRANT patterns, which are wildcard-matched (not exact-matched) against a normalized form of each request and cover sudo/su/doas, `bash -c`/`sh -c`/eval, env/printenv, nc/nmap, `chmod 777`, any catch-all such as Bash(*), and any payload containing a shell-chaining metacharacter (| ; && backtick $(). No role, or a role with no bounds file, skips the bounds check entirely. Provide at least one of role or tags.'),
   tags: z.array(z.string()).optional().describe('Member tags. Include "doer" or "reviewer" to set the primary mode (default doer); other tags (e.g. "gpu", "devops") load tag-<name>.json profiles and merge additively. When both role and tags are given, tags wins.'),
   project_folder: z.string().optional().describe('Local project folder containing permissions.json ledger. Omit to skip ledger merge.'),
   grant: z.array(z.string()).optional().describe('Reactive mode: additional permissions to grant (e.g. ["Bash(docker:*)", "Bash(docker-compose:*)"]). Appended to current permissions and re-delivered.'),
@@ -47,11 +47,81 @@ const CO_OCCURRENCE: Record<string, string[]> = {
   'Bash(python:*)': ['Bash(python3:*)'],
 };
 
-// Never auto-grant - require user escalation
-const NEVER_AUTO_GRANT = new Set([
-  'Bash(sudo:*)', 'Bash(su:*)', 'Bash(env:*)', 'Bash(printenv:*)',
-  'Bash(nc:*)', 'Bash(nmap:*)', 'Bash(chmod 777:*)',
-]);
+// Never auto-grant - require user escalation.
+//
+// apra-fleet PR#416 review (finding 3): this was previously a seven-entry Set
+// checked with exact string equality, so `Bash(sudo *)`, `Bash(sudo:*) `
+// (trailing space), `Bash(bash -c *)`, `Bash(sh -c *)`, `Bash(*)` and
+// `Bash(curl *|sh)` all sailed straight through -- i.e. arbitrary code
+// execution was one whitespace character away from being auto-grantable.
+// These are now wildcard *patterns* matched with the same matchesBoundsPattern
+// matcher the bounds check already uses, against a normalized form of the
+// requested permission. A denylist can never be complete (`Bash(perl -e *)`,
+// `Bash(node -e *)`, `Bash(make *)` remain arbitrary-execution in practice);
+// it is the unconditional floor that applies to EVERY caller of this tool,
+// with the role bounds check as the ceiling on the autonomous grant path.
+const NEVER_AUTO_GRANT_PATTERNS = [
+  'Bash(sudo*)',
+  'Bash(su *)',
+  'Bash(doas*)',
+  'Bash(*bash -c*)',
+  'Bash(*sh -c*)',
+  'Bash(*eval*)',
+  'Bash(chmod 777*)',
+  'Bash(env*)',
+  'Bash(printenv*)',
+  'Bash(nc*)',
+  'Bash(nmap*)',
+];
+
+// Shell metacharacters that turn a single approved command into an arbitrary
+// command chain. A grant payload containing any of these is rejected
+// structurally, regardless of which command it names.
+const SHELL_CHAINING_METACHARS = ['|', ';', '&&', '`', '$('];
+
+/** Splits `Tool(payload)` into its parts; returns null for a bare tool name. */
+function splitPermission(permission: string): { tool: string; payload: string } | null {
+  const m = /^([A-Za-z_][A-Za-z0-9_-]*)\((.*)\)$/.exec(permission.trim());
+  if (!m) return null;
+  return { tool: m[1]!, payload: m[2]! };
+}
+
+/**
+ * Canonical form used for denylist matching only (never for storage or
+ * delivery). Trims, collapses internal whitespace, and treats the ':' that
+ * separates the command token from its argument pattern as equivalent to a
+ * space, so `Bash(sudo:*)` and `Bash(sudo *)` are the same request.
+ */
+export function normalizePermission(permission: string): string {
+  const s = permission.trim().replace(/\s+/g, ' ');
+  const parts = splitPermission(s);
+  if (!parts) return s;
+  const payload = parts.payload.replace(':', ' ').replace(/\s+/g, ' ').trim();
+  return `${parts.tool}(${payload})`;
+}
+
+/**
+ * True when the requested permission must never be granted without explicit
+ * user escalation. Three independent rules, any of which rejects:
+ *  1. catch-all: a payload that is nothing but wildcards/whitespace -- e.g.
+ *     `Bash(*)` -- which is not "a wider grant", it is unrestricted execution.
+ *  2. shell chaining: the payload contains |, ;, &&, a backtick, or $( .
+ *  3. pattern match against NEVER_AUTO_GRANT_PATTERNS.
+ */
+export function isNeverAutoGrant(permission: string): boolean {
+  const normalized = normalizePermission(permission);
+  const parts = splitPermission(normalized);
+  const payload = parts?.payload ?? '';
+
+  // 1. Catch-all grant (Bash(*), Bash( ** ), ...).
+  if (parts && payload.replace(/[*\s]/g, '') === '') return true;
+
+  // 2. Shell chaining metacharacters anywhere in the payload.
+  if (SHELL_CHAINING_METACHARS.some(meta => payload.includes(meta))) return true;
+
+  // 3. Explicit deny patterns (wildcard-aware, same matcher as bounds).
+  return NEVER_AUTO_GRANT_PATTERNS.some(pattern => matchesBoundsPattern(pattern, normalized));
+}
 
 interface Ledger {
   stacks: string[];
@@ -418,7 +488,7 @@ export async function composePermissions(input: ComposePermissionsInput): Promis
 
   // Reactive grant mode
   if (input.grant?.length) {
-    const blocked = input.grant.filter(p => NEVER_AUTO_GRANT.has(p));
+    const blocked = input.grant.filter(p => isNeverAutoGrant(p));
     if (blocked.length) {
       return `❌ Cannot auto-grant dangerous permissions: ${blocked.join(', ')}. Escalate to user.`;
     }
