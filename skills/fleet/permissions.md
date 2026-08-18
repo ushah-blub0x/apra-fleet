@@ -95,24 +95,56 @@ each newly requested permission against it before recording the grant.
   `role`, or with a role that has no matching bounds file, skips the bounds check
   entirely (a defined-empty bounds list means "no bounds check", never "deny
   everything" -- see `loadBounds`).
-- **Out-of-bounds handling is informational only, never a filter**: a permission
-  outside the requesting role's bounds is still granted exactly as requested. The
-  only difference is its `permissions.json` ledger entry gets `outOfBounds: true`
-  and `requestedByRole: "<role>"` recorded alongside the usual
-  `permission`/`reason`/`date` fields, so the grant is auditable after the fact.
+- **Out-of-bounds handling is ENFORCING on the autonomous grant path**: when a
+  `grant` request carries a role that has a bounds file in the INSTALLED
+  (`~/.claude/skills/fleet/profiles/`) directory, an out-of-bounds permission is
+  **rejected** -- the whole request is refused, nothing is delivered and nothing
+  is written to the ledger. That role-gated allowlist is what gives the
+  autonomous self-heal path a *bounded* worst case, rather than the *enumerated*
+  one a denylist alone can offer. The rejection names the offending prefixes and
+  the bounds file to edit.
+  Three carve-outs keep the check non-blocking, and each still records the
+  informational ledger flag (`outOfBounds: true` plus
+  `requestedByRole: "<role>"`, alongside the usual `permission`/`reason`/`date`):
+  - no `role`, or a role with no bounds file (manual/operator grants -- the
+    denylist is their only gate);
+  - `allow_out_of_bounds: true`, an explicit operator escalation that autonomous
+    callers must never set;
+  - a repo-relative dev-fallback profiles directory (see the next bullet), which
+    is not a trust boundary and so cannot legitimately block anything.
   An in-bounds grant, or a grant made with no role, gets no bounds fields at all --
-  identical shape to the ledger's pre-bounds behavior.
+  identical shape to the ledger's pre-bounds behavior. A co-occurrence expansion
+  the tool adds itself is *dropped* when out of bounds rather than failing the
+  caller's whole request.
 - **Bounds never loosen `NEVER_AUTO_GRANT`**: the hard-rejected patterns (`sudo`,
   `su`, `doas`, `bash -c`/`sh -c`, `eval`, `env`, `printenv`, `nc`, `nmap`,
   `chmod 777`, any catch-all such as `Bash(*)`, and any payload containing a
   shell-chaining metacharacter -- see [Never auto-granted](#never-auto-granted))
   are checked first and unconditionally, before any bounds lookup happens. A role's bounds file cannot widen this set;
   even if a bounds file were to list `Bash(sudo:*)`, the request is still rejected.
-- **Bounds files are not a member-editable surface**: they ship as static profiles
-  under `skills/fleet/profiles/` alongside the other profile JSON (base-dev,
-  stack profiles, tag profiles). Members and their dispatched work never write to
-  them; only a repo change (reviewed like any other profile edit) can add or
-  widen a role's bounds.
+- **Bounds files are not a member-editable surface -- ONLY when installed**: they
+  ship as static profiles under `skills/fleet/profiles/` alongside the other
+  profile JSON (base-dev, stack profiles, tag profiles) and are installed to
+  `~/.claude/skills/fleet/profiles/`, where members and their dispatched work
+  never write. Only a repo change (reviewed like any other profile edit) can add
+  or widen a role's bounds.
+  `findProfilesDir()` prefers that installed path, but falls back to walking up
+  from `__dirname` looking for `skills/fleet/profiles` when no installed skill
+  exists. **That fallback is not a trust boundary**: in a dogfood configuration
+  (apra-fleet building apra-fleet from a checkout) it resolves INSIDE the repo a
+  sprint can write to, i.e. the sprint could edit the very file meant to bound
+  it. Every use of the fallback logs a loud warning naming the resolved path,
+  and the bounds check downgrades itself to informational there rather than
+  pretending to enforce. Install the fleet skill to restore enforcement.
+- **Bounds entries are a reviewed ceiling, not a safety proof**: enforcement
+  bounds the worst case to whatever a human put in the profile. Some current
+  entries are themselves broad -- `bounds-integ-test-runner.json`'s
+  `Bash(npm run *)` is arbitrary execution via `package.json` scripts, and
+  `bounds-regression-test-runner.json` carries `Bash(mkdir *)` and
+  `Bash(git clone *)`. All are declared verbatim by their own runbook's
+  `## Permissions` section, so narrowing the bounds file without narrowing the
+  runbook in the same change would just break the self-heal. Treat tightening
+  them as a separate, deliberate pass.
 
 ## Role switch
 
