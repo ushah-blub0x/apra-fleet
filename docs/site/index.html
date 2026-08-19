@@ -417,7 +417,7 @@ another called reviewer. Pair them."</span></pre>
   <p class="eyebrow">What it is</p>
   <h2>One control plane. Any device. Any model.</h2>
   <p class="lede">apra-fleet is an MCP server + CLI. Any MCP-capable agent --
-  Claude Code, Gemini, Codex, Copilot, OpenCode, Antigravity -- becomes the
+  Claude Code, Codex, Copilot, OpenCode, Antigravity -- becomes the
   orchestrator of a fleet: it registers machines as members, dispatches
   commands and prompts to them, moves files, and brokers credentials. You
   drive it in plain language: <em>"Register a local member called doer.
@@ -454,7 +454,7 @@ another called reviewer. Pair them."</span></pre>
   <div class="diff">
     <article>
       <h3>Across machines and vendors</h3>
-      <p>Agent frameworks compose agents inside one process. apra-fleet's unit of execution is a <strong>member</strong>: a machine plus a provider CLI, swappable at registration. Every provider sits behind one strategy interface, which is what makes mixing Claude, Gemini, Codex, Copilot, Antigravity, and local models genuinely work.</p>
+      <p>Agent frameworks compose agents inside one process. apra-fleet's unit of execution is a <strong>member</strong>: a machine plus a provider CLI, swappable at registration. Every provider sits behind one strategy interface, which is what makes mixing Claude, Codex, Copilot, Antigravity, and local models genuinely work.</p>
       <span class="ref">src/providers/ -- AgentStrategy</span>
     </article>
     <article>
@@ -542,7 +542,7 @@ another called reviewer. Pair them."</span></pre>
   <div class="stats">
     <div class="stat"><div class="n">2,300+</div><div class="l">unit tests in the codebase the fleet maintains</div></div>
     <div class="stat"><div class="n">81</div><div class="l">files in the integration suite run against real backends</div></div>
-    <div class="stat"><div class="n">6</div><div class="l">provider CLIs: Claude, Gemini, Codex, Copilot, Antigravity, OpenCode (local models)</div></div>
+    <div class="stat"><div class="n">5</div><div class="l">provider CLIs: Claude, Codex, Copilot, Antigravity, OpenCode (local models)</div></div>
   </div>
 </div>
 </section>
@@ -591,7 +591,7 @@ apra-fleet workflow fleet-sprint \
   commands work with any supported provider. For Antigravity/AGY:
   <code>apra-fleet --llm agy</code>, then restart Antigravity to load the
   fleet MCP server. For OpenCode: <code>apra-fleet --llm opencode</code>.
-  Codex, Copilot, and Gemini are also supported -- see
+  Codex and Copilot are also supported -- see
   <a href="https://github.com/Apra-Labs/apra-fleet/blob/main/docs/install.md">docs/install.md</a>
   for the full provider list.</p>
 </div>

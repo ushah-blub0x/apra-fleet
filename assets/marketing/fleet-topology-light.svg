@@ -117,8 +117,8 @@
       <circle cx="-55" cy="-28" r="3" fill="#10B981"/>
       <text x="-46" y="-28" dominant-baseline="central" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif" font-size="10" font-weight="800" fill="#0F172A">Cloud VM (AWS EC2)</text>
 
-      <rect x="-75" y="-10" width="92" height="18" rx="4" fill="#E0F2FE" stroke="#0284C7" stroke-width="1"/>
-      <text x="-29" y="-1" dominant-baseline="central" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif" font-size="9" font-weight="800" fill="#0369A1" text-anchor="middle">Gemini / Codex</text>
+      <rect x="-75" y="-10" width="54" height="18" rx="4" fill="#E0F2FE" stroke="#0284C7" stroke-width="1"/>
+      <text x="-48" y="-1" dominant-baseline="central" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif" font-size="9" font-weight="800" fill="#0369A1" text-anchor="middle">Codex</text>
 
       <text x="-75" y="20" dominant-baseline="central" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif" font-size="10" font-weight="600" fill="#475569">Role: Parallel Refactor</text>
     </g>
