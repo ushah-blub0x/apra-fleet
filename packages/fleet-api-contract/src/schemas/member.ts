@@ -7,7 +7,6 @@ import { z } from 'zod';
  */
 export const ProviderSchema = z.enum([
   'claude',
-  'gemini',
   'codex',
   'copilot',
   'agy',

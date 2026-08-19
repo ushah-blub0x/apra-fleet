@@ -175,7 +175,7 @@ describe('hub http-server (apra-fleet-us9.4)', () => {
   it('POST /ws/:id/members/:mid/rotate revokes the old token and issues a new one that authenticates', async () => {
     const { token: adminToken } = sign({ sub: 'm-1', ws: 'ws-a', role: 'doer' }, SECRET);
 
-    const created = await requestJson(port, 'POST', '/ws/ws-a/members', { token: adminToken, body: { name: 'bella', provider: 'gemini' } });
+    const created = await requestJson(port, 'POST', '/ws/ws-a/members', { token: adminToken, body: { name: 'bella', provider: 'codex' } });
     const memberId = created.body.member.id;
     const oldToken = created.body.jwt;
 

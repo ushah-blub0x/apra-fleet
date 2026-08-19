@@ -156,7 +156,6 @@
             "type": "string",
             "enum": [
               "claude",
-              "gemini",
               "codex",
               "copilot",
               "agy",
@@ -228,6 +227,13 @@
           "agentVer": {
             "type": "string",
             "minLength": 1
+          },
+          "reservedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Sprint/session id holding this member's reservation, or null if unreserved"
           }
         },
         "required": [
@@ -243,7 +249,8 @@
           "lastPromptAt",
           "tags",
           "jwtExp",
-          "agentVer"
+          "agentVer",
+          "reservedBy"
         ]
       },
       "MemberTokenResponse": {
@@ -264,7 +271,6 @@
                 "type": "string",
                 "enum": [
                   "claude",
-                  "gemini",
                   "codex",
                   "copilot",
                   "agy",
@@ -336,6 +342,13 @@
               "agentVer": {
                 "type": "string",
                 "minLength": 1
+              },
+              "reservedBy": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Sprint/session id holding this member's reservation, or null if unreserved"
               }
             },
             "required": [
@@ -351,7 +364,8 @@
               "lastPromptAt",
               "tags",
               "jwtExp",
-              "agentVer"
+              "agentVer",
+              "reservedBy"
             ]
           },
           "jwt": {
@@ -540,7 +554,6 @@
             "type": "string",
             "enum": [
               "claude",
-              "gemini",
               "codex",
               "copilot",
               "agy",
@@ -1555,7 +1568,6 @@
                         "type": "string",
                         "enum": [
                           "claude",
-                          "gemini",
                           "codex",
                           "copilot",
                           "agy",
@@ -1627,6 +1639,13 @@
                       "agentVer": {
                         "type": "string",
                         "minLength": 1
+                      },
+                      "reservedBy": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "Sprint/session id holding this member's reservation, or null if unreserved"
                       }
                     },
                     "required": [
@@ -1642,7 +1661,8 @@
                       "lastPromptAt",
                       "tags",
                       "jwtExp",
-                      "agentVer"
+                      "agentVer",
+                      "reservedBy"
                     ]
                   }
                 }
@@ -1715,7 +1735,6 @@
                         "type": "string",
                         "enum": [
                           "claude",
-                          "gemini",
                           "codex",
                           "copilot",
                           "agy",
@@ -1771,7 +1790,6 @@
                           "type": "string",
                           "enum": [
                             "claude",
-                            "gemini",
                             "codex",
                             "copilot",
                             "agy",
@@ -1843,6 +1861,13 @@
                         "agentVer": {
                           "type": "string",
                           "minLength": 1
+                        },
+                        "reservedBy": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "Sprint/session id holding this member's reservation, or null if unreserved"
                         }
                       },
                       "required": [
@@ -1858,7 +1883,8 @@
                         "lastPromptAt",
                         "tags",
                         "jwtExp",
-                        "agentVer"
+                        "agentVer",
+                        "reservedBy"
                       ]
                     },
                     "jwt": {
@@ -1963,7 +1989,6 @@
                           "type": "string",
                           "enum": [
                             "claude",
-                            "gemini",
                             "codex",
                             "copilot",
                             "agy",
@@ -2035,6 +2060,13 @@
                         "agentVer": {
                           "type": "string",
                           "minLength": 1
+                        },
+                        "reservedBy": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "Sprint/session id holding this member's reservation, or null if unreserved"
                         }
                       },
                       "required": [
@@ -2050,7 +2082,8 @@
                         "lastPromptAt",
                         "tags",
                         "jwtExp",
-                        "agentVer"
+                        "agentVer",
+                        "reservedBy"
                       ]
                     },
                     "jwt": {
@@ -2406,7 +2439,6 @@
                         "type": "string",
                         "enum": [
                           "claude",
-                          "gemini",
                           "codex",
                           "copilot",
                           "agy",
@@ -2579,7 +2611,6 @@
                       "type": "string",
                       "enum": [
                         "claude",
-                        "gemini",
                         "codex",
                         "copilot",
                         "agy",
@@ -2744,7 +2775,6 @@
                       "type": "string",
                       "enum": [
                         "claude",
-                        "gemini",
                         "codex",
                         "copilot",
                         "agy",

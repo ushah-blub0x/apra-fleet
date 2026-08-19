@@ -43,7 +43,7 @@ describe('members (pg-mem, real SQL engine, no Docker required)', () => {
 
   it('creates a member attached to a registered machine', async () => {
     await registerMachine('m-1', 'ws-test', 'dev-laptop', pool);
-    const row = await createMember('mem-2', 'ws-test', { name: 'bella', provider: 'gemini', machineId: 'm-1', workFolder: '/srv/work' }, pool);
+    const row = await createMember('mem-2', 'ws-test', { name: 'bella', provider: 'codex', machineId: 'm-1', workFolder: '/srv/work' }, pool);
     expect(row.machine_id).toBe('m-1');
     expect(row.work_folder).toBe('/srv/work');
   });

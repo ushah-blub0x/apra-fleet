@@ -60,7 +60,7 @@ describe('member-view (pg-mem, real SQL engine, no Docker required)', () => {
 
   it('a member with a machine but NO presence entry reports offline (registered, never connected)', async () => {
     await registerMachine('m-1', 'ws-test', 'dev-laptop', pool);
-    await createMember('mem-2', 'ws-test', { name: 'bella', provider: 'gemini', machineId: 'm-1', workFolder: '/srv/work' }, pool);
+    await createMember('mem-2', 'ws-test', { name: 'bella', provider: 'codex', machineId: 'm-1', workFolder: '/srv/work' }, pool);
 
     const view = await getMemberView('ws-test', 'mem-2', pool);
     expect(view?.status).toBe('offline');
