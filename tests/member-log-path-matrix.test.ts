@@ -10,7 +10,7 @@
  *        remote member's ('bella').
  *     2. WRONG SEPARATOR/ROOT -- `path.join` follows the HUB process's OS, so a
  *        Windows hub emitted backslash paths for a Linux member and vice versa.
- *   Downstream: Claude/Gemini polled a path that can never exist (stall
+ *   Downstream: Claude polled a path that can never exist (stall
  *   detection silently inert), while AGY/OpenCode lost their directory-mtime
  *   signal entirely and the provisional baseline timeout FALSE-KILLED healthy
  *   dispatches.

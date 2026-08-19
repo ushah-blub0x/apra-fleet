@@ -76,9 +76,9 @@ describe('extract-results: Claude stream-json (result envelope)', () => {
   });
 });
 
-// ── Fragmented Gemini chunks ───────────────────────────────────────────────────
+// ── Fragmented message chunks (provider-agnostic reassembly) ─────────────────
 
-describe('extract-results: Gemini fragmented message chunks', () => {
+describe('extract-results: fragmented message chunks', () => {
   it('reassembles CHECKPOINT split across two message chunks', () => {
     const lines = [
       JSON.stringify({ type: 'message', role: 'assistant', content: 'CHECKPOINT: [{"test":"T1",' }),

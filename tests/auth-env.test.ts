@@ -34,30 +34,30 @@ describe('buildAuthEnvPrefix', () => {
   });
 
   it('linux: returns export format with double-quoted value', () => {
-    const member = makeAgent({ GEMINI_API_KEY: 'test-key-123' });
+    const member = makeAgent({ ANTIGRAVITY_API_KEY: 'test-key-123' });
     const prefix = buildAuthEnvPrefix(member, 'linux');
-    expect(prefix).toContain('export GEMINI_API_KEY="test-key-123"');
+    expect(prefix).toContain('export ANTIGRAVITY_API_KEY="test-key-123"');
     expect(prefix.endsWith(' && ')).toBe(true);
   });
 
   it('macos: returns same export format as linux', () => {
-    const member = makeAgent({ GEMINI_API_KEY: 'test-key-456' });
+    const member = makeAgent({ ANTIGRAVITY_API_KEY: 'test-key-456' });
     const prefix = buildAuthEnvPrefix(member, 'macos');
-    expect(prefix).toContain('export GEMINI_API_KEY="test-key-456"');
+    expect(prefix).toContain('export ANTIGRAVITY_API_KEY="test-key-456"');
     expect(prefix.endsWith(' && ')).toBe(true);
   });
 
   it('windows: returns PowerShell $env: format with single-quoted value', () => {
-    const member = makeAgent({ GEMINI_API_KEY: 'test-key-789' });
+    const member = makeAgent({ ANTIGRAVITY_API_KEY: 'test-key-789' });
     const prefix = buildAuthEnvPrefix(member, 'windows');
-    expect(prefix).toContain("$env:GEMINI_API_KEY='test-key-789'");
+    expect(prefix).toContain("$env:ANTIGRAVITY_API_KEY='test-key-789'");
     expect(prefix.endsWith('; ')).toBe(true);
   });
 
   it('linux: multiple env vars joined with &&', () => {
-    const member = makeAgent({ GEMINI_API_KEY: 'key1', OPENAI_API_KEY: 'key2' });
+    const member = makeAgent({ ANTIGRAVITY_API_KEY: 'key1', OPENAI_API_KEY: 'key2' });
     const prefix = buildAuthEnvPrefix(member, 'linux');
-    expect(prefix).toContain('export GEMINI_API_KEY="key1"');
+    expect(prefix).toContain('export ANTIGRAVITY_API_KEY="key1"');
     expect(prefix).toContain('export OPENAI_API_KEY="key2"');
     expect(prefix).toContain(' && ');
     // Should end with ' && ' for prepending to commands
@@ -65,9 +65,9 @@ describe('buildAuthEnvPrefix', () => {
   });
 
   it('windows: multiple env vars joined with ;', () => {
-    const member = makeAgent({ GEMINI_API_KEY: 'key1', OPENAI_API_KEY: 'key2' });
+    const member = makeAgent({ ANTIGRAVITY_API_KEY: 'key1', OPENAI_API_KEY: 'key2' });
     const prefix = buildAuthEnvPrefix(member, 'windows');
-    expect(prefix).toContain("$env:GEMINI_API_KEY='key1'");
+    expect(prefix).toContain("$env:ANTIGRAVITY_API_KEY='key1'");
     expect(prefix).toContain("$env:OPENAI_API_KEY='key2'");
     expect(prefix).toContain('; ');
     expect(prefix.endsWith('; ')).toBe(true);
