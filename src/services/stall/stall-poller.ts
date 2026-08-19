@@ -227,9 +227,7 @@ export async function pollLogFile(memberId: string, logFilePath: string): Promis
 
     const lines = result.stdout.split('\n').filter(l => l.trim());
 
-    const extracted = provider === 'gemini'
-      ? extractGeminiTimestamp(memberId, lines)
-      : provider === 'agy'
+    const extracted = provider === 'agy'
       ? extractAgyTimestamp(memberId, lines, result.stdout)
       : extractClaudeTimestamp(memberId, lines, result.stdout);
     return { ...extracted, mtimeMs };
@@ -320,22 +318,3 @@ function extractClaudeTimestamp(memberId: string, lines: string[], rawTail = '')
   return { lastTimestamp: null };
 }
 
-function extractGeminiTimestamp(memberId: string, lines: string[]): PollResult {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    try {
-      const parsed = JSON.parse(lines[i]) as Record<string, unknown>;
-      const set = parsed['$set'] as Record<string, unknown> | undefined;
-      if (set !== undefined) {
-        const ts = set['lastUpdated'];
-        if (typeof ts === 'string') {
-          return { lastTimestamp: ts };
-        }
-        logLine('stall_poll_format_error', JSON.stringify({ memberId, error: '$set entry missing lastUpdated' }));
-        return { lastTimestamp: null };
-      }
-    } catch {
-      // partial line -- skip
-    }
-  }
-  return { lastTimestamp: null };
-}
