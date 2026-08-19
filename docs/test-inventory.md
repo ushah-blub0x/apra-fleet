@@ -3,6 +3,12 @@
 Status: audit only. Nothing in this document has been applied. No test or source
 file was modified while producing it.
 
+> **Historical note:** Gemini was a supported provider at the time this inventory
+> was measured. It has since been fully removed (see apra-fleet-ytfy.1.7), and the
+> `tests/gemini-mcp-exclude.test.ts` row below refers to a test file that no longer
+> exists; the row is preserved only as a point-in-time measurement record, not
+> current guidance.
+
 Measured on branch `chore/integration-binary-fixes-and-auth-selfheal`, Windows 11,
 Node v22.22.1, 2026-08-02/03. Every duration below is a real measurement taken
 during this audit unless explicitly labelled as coming from

@@ -1,6 +1,12 @@
 # Test Suite Audit Report
 Generated: 2026-05-09
 
+> **Historical note:** Gemini was a supported provider at the time this audit was
+> generated. It has since been fully removed (see apra-fleet-ytfy.1.7); the
+> `tests/gemini-mcp-exclude.test.ts` file referenced below no longer exists, and
+> the Gemini/GeminiProvider findings below are preserved only as a point-in-time
+> record of that audit, not current guidance.
+
 ## Summary
 - Files audited: 76
 - Dead tests: 26
