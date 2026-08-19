@@ -92,24 +92,13 @@ function processRawFile(filePath, provider) {
     let obj;
     try { obj = JSON.parse(trimmed); } catch { continue; }
 
-    if (provider === 'gemini') {
-      // Gemini: accumulate from result event stats (input = non-cached input, cached = cache reads)
-      if (obj.type === 'result' && obj.stats) {
-        const s = obj.stats;
-        tokensIn += (s.input ?? 0);
-        tokensOut += (s.output_tokens ?? 0);
-        cacheRead += (s.cached ?? 0);
-        // cacheCreate stays 0: gemini does not report cache writes
-      }
-    } else {
-      // Claude: sum usage across every assistant event (not just the final result turn)
-      if (obj.type === 'assistant' && obj.message?.usage) {
-        const u = obj.message.usage;
-        tokensIn += (u.input_tokens ?? 0);
-        tokensOut += (u.output_tokens ?? 0);
-        cacheCreate += (u.cache_creation_input_tokens ?? 0);
-        cacheRead += (u.cache_read_input_tokens ?? 0);
-      }
+    // Claude: sum usage across every assistant event (not just the final result turn)
+    if (obj.type === 'assistant' && obj.message?.usage) {
+      const u = obj.message.usage;
+      tokensIn += (u.input_tokens ?? 0);
+      tokensOut += (u.output_tokens ?? 0);
+      cacheCreate += (u.cache_creation_input_tokens ?? 0);
+      cacheRead += (u.cache_read_input_tokens ?? 0);
     }
 
     if (obj.type === 'result' && obj.result) {

@@ -14,7 +14,6 @@ import {
   cloneAndInitCommand,
   toyRepoUrlFor,
   claudeProjectSlug,
-  geminiProjectName,
   collectTranscriptScript,
 } from '../.github/e2e/fleet-setup.mjs';
 
@@ -173,17 +172,6 @@ describe('fleet-setup.mjs deterministic session-log collection', () => {
     });
   });
 
-  describe('geminiProjectName', () => {
-    it('takes the final path segment across both separator styles', () => {
-      expect(geminiProjectName('/home/user/my-project')).toBe('my-project');
-      expect(geminiProjectName('C:\\Users\\test\\workspace')).toBe('workspace');
-    });
-
-    it('falls back to "project" for an empty/root path', () => {
-      expect(geminiProjectName('/')).toBe('project');
-    });
-  });
-
   describe('collectTranscriptScript', () => {
     // Dynamic values (slugs, session ids, work folders) are passed as
     // base64-encoded process.argv words, not interpolated as quoted string
@@ -208,15 +196,6 @@ describe('fleet-setup.mjs deterministic session-log collection', () => {
       expect(decodedScript).toContain('projects');
       expect(decodedScript).toContain('copyFileSync');
       expect(decodedArgs).toEqual(['-home-user-fleet-work', 'sess-123']);
-    });
-
-    it('gemini: locates by project basename + exact session id under ~/.gemini/tmp/<project>/chats', () => {
-      const command = collectTranscriptScript('gemini', '/home/user/my-project', 'session-789-ghi');
-      const { decodedScript, decodedArgs } = decodeCommand(command);
-      expect(decodedScript).toContain('.gemini');
-      expect(decodedScript).toContain('tmp');
-      expect(decodedScript).toContain('chats');
-      expect(decodedArgs).toEqual(['my-project', 'session-789-ghi']);
     });
 
     it('agy: looks up by work folder via last_conversations.json, not by the fleet-tracked session id', () => {

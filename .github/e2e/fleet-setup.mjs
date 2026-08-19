@@ -380,17 +380,12 @@ export function deleteFolderCommand(folderPath, os) {
 // Path conventions below mirror src/services/stall/log-path-resolver.ts
 // (the stall detector's own, already-tested logic for finding a live
 // session's log file) rather than the old prompt's hand-written description,
-// which turned out to disagree with it in places (e.g. gemini's real
-// filename is the exact session ID, not an 8-char-prefix glob).
+// which turned out to disagree with it in places for some providers.
 
 export function claudeProjectSlug(workFolder) {
   // Claude Code replaces EVERY non-alphanumeric character (slashes,
   // backslashes, colons, dots...) with '-', not just path separators.
   return workFolder.replace(/[^a-zA-Z0-9]/g, '-');
-}
-
-export function geminiProjectName(workFolder) {
-  return workFolder.split(/[\\/]/).filter(Boolean).pop() || 'project';
 }
 
 // Builds a cross-platform `node -e ...` SHELL COMMAND (not just JS source) that
@@ -448,15 +443,6 @@ export function collectTranscriptScript(provider, workFolder, sessionId) {
       + `const src=path.join(os.homedir(),'.claude','projects',A[0],A[1]+'.jsonl');`
       + copyAndReport('src', 'A[1]');
     return buildNodeEvalCommand(scriptBody, [slug, sessionId]);
-  }
-
-  if (provider === 'gemini') {
-    const projectName = geminiProjectName(workFolder);
-    const scriptBody =
-      `const fs=require('fs'),path=require('path'),os=require('os');`
-      + `const src=path.join(os.homedir(),'.gemini','tmp',A[0],'chats',A[1]+'.jsonl');`
-      + copyAndReport('src', 'A[1]');
-    return buildNodeEvalCommand(scriptBody, [projectName, sessionId]);
   }
 
   if (provider === 'agy') {
