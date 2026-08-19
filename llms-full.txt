@@ -1,4 +1,4 @@
-<project title="Apra Fleet" summary="AI-managed fleet orchestration for Claude Code, Gemini, and Antigravity (agy) -- run, update, and coordinate multiple LLM agents from a single hub.">
+<project title="Apra Fleet" summary="AI-managed fleet orchestration for Claude Code and Antigravity (agy) -- run, update, and coordinate multiple LLM agents from a single hub.">
   <docs>
   <doc title="Readme" desc="Project overview, installation, member registration, and day-to-day usage for operators.">
 <div align="center">
