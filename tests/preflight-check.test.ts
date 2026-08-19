@@ -399,11 +399,11 @@ describe('preflightCheck', () => {
 
   // ---- F4: non-Claude provider logs a warning instead of silent no-op ----
   it('logs warning for non-Claude provider when OAuth freshness check cannot parse', async () => {
-    mockProviderName = 'gemini';
-    const agent = makeAgent({ llmProvider: 'gemini' });
+    mockProviderName = 'agy';
+    const agent = makeAgent({ llmProvider: 'agy' });
     mockTestConnection.mockResolvedValue({ ok: true, latencyMs: 5 });
     mockExecCommand.mockResolvedValueOnce({
-      stdout: JSON.stringify({ geminiOauth: { token: 'some-token' } }),
+      stdout: JSON.stringify({ agyOauth: { token: 'some-token' } }),
       stderr: '',
       code: 0,
     }); // readRemoteJson -- non-Claude shape, file present
@@ -416,7 +416,7 @@ describe('preflightCheck', () => {
     expect(result.ok).toBe(true);
     expect(mockLogLineFn).toHaveBeenCalledWith(
       'preflight',
-      expect.stringContaining('OAuth file present but unparseable for provider gemini'),
+      expect.stringContaining('OAuth file present but unparseable for provider agy'),
       agent,
     );
   });

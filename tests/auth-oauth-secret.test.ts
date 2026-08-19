@@ -450,12 +450,12 @@ describe('handleOAuth --member env-var provisioning (apra-fleet-eft.48.8)', () =
   });
 
   it('rejects --member for non-claude providers (CLAUDE_CODE_OAUTH_TOKEN is Claude-specific)', async () => {
-    const member = makeTestLocalAgent({ friendlyName: 'toy-doer-5', llmProvider: 'gemini' });
+    const member = makeTestLocalAgent({ friendlyName: 'toy-doer-5', llmProvider: 'agy' });
     addAgent(member);
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    await expect(runAuth(['--oauth', '--llm', 'gemini', '--member', 'toy-doer-5', 'sk-test-token'])).rejects.toThrow('exit');
+    await expect(runAuth(['--oauth', '--llm', 'agy', '--member', 'toy-doer-5', 'sk-test-token'])).rejects.toThrow('exit');
 
     expect(exitSpy).toHaveBeenCalledWith(1);
     errorSpy.mockRestore();

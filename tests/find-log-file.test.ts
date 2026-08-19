@@ -227,19 +227,19 @@ describe('findLogFile', () => {
     });
   });
 
-  // --- Local — Case B Gemini (sessionId known, uses mtime scan) ---
+  // --- Local — Case B non-Claude provider (sessionId known, uses mtime scan) ---
 
-  describe('local — Case B Gemini', () => {
+  describe('local — Case B non-Claude provider', () => {
     it('uses mtime scan (not direct path) even when sessionId is set', async () => {
-      mockGetAgent.mockReturnValue(makeLocalAgent({ sessionId: 'gem-sess', llmProvider: 'gemini' }));
+      mockGetAgent.mockReturnValue(makeLocalAgent({ sessionId: 'agy-sess', llmProvider: 'agy' }));
       mockReaddirSync.mockReturnValue([
-        { isFile: () => true, name: 'gem-sess.jsonl' },
+        { isFile: () => true, name: 'agy-sess.jsonl' },
       ]);
       mockStatSync.mockReturnValue({ mtimeMs: T0 + 1000 });
 
-      const result = await findLogFile('local-1', T0, 'inv1', '/logs/gemini/chats');
+      const result = await findLogFile('local-1', T0, 'inv1', '/logs/agy/chats');
 
-      expect(result).toContain('gem-sess.jsonl');
+      expect(result).toContain('agy-sess.jsonl');
       expect(mockReaddirSync).toHaveBeenCalled();
     });
   });
@@ -353,7 +353,7 @@ describe('findLogFile', () => {
     });
   });
 
-  // --- Remote — Case A / Case B Gemini (mtime scan) ---
+  // --- Remote — Case A / Case B non-Claude provider (mtime scan) ---
 
   describe('remote — mtime scan', () => {
     it('returns single candidate from remote mtime scan', async () => {

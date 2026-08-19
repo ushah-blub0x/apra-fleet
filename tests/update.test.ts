@@ -58,7 +58,7 @@ describe('runUpdate (T6)', () => {
 
     // Default fs behavior
     vi.mocked(fs.existsSync).mockReturnValue(true);
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ llm: 'gemini', skill: 'pm' }));
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ llm: 'agy', skill: 'pm' }));
     vi.mocked(fs.chmodSync).mockImplementation(() => {});
     vi.mocked(fs.renameSync).mockImplementation(() => undefined as any);
     vi.mocked(fs.rmSync).mockImplementation(() => undefined as any);
@@ -123,7 +123,7 @@ describe('runUpdate (T6)', () => {
     // Check installer spawn
     expect(spawn).toHaveBeenCalledWith(
       expect.stringContaining('apra-fleet-installer-linux-x64'),
-      ['install', '--force', '--llm', 'gemini', '--skill', 'pm', '--workflows', 'all'],
+      ['install', '--force', '--llm', 'agy', '--skill', 'pm', '--workflows', 'all'],
       expect.objectContaining({ detached: true })
     );
     expect(process.exit).toHaveBeenCalledWith(0);
@@ -200,7 +200,7 @@ describe('runUpdate (T6)', () => {
   it('install-config.json with workflowsMode "none" -- threads --workflows none into the re-invoked install', async () => {
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
       providers: {
-        gemini: { skill: 'pm', workflowsMode: 'none', installedAt: '2026-01-01T00:00:00.000Z' },
+        agy: { skill: 'pm', workflowsMode: 'none', installedAt: '2026-01-01T00:00:00.000Z' },
       },
     }));
 
@@ -223,7 +223,7 @@ describe('runUpdate (T6)', () => {
 
     expect(spawn).toHaveBeenCalledWith(
       expect.anything(),
-      ['install', '--force', '--llm', 'gemini', '--skill', 'pm', '--workflows', 'none'],
+      ['install', '--force', '--llm', 'agy', '--skill', 'pm', '--workflows', 'none'],
       expect.anything()
     );
   });
@@ -231,7 +231,7 @@ describe('runUpdate (T6)', () => {
   it('install-config.json with workflowsMode field absent (older format) -- defaults to --workflows all', async () => {
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
       providers: {
-        gemini: { skill: 'pm', installedAt: '2026-01-01T00:00:00.000Z' },
+        agy: { skill: 'pm', installedAt: '2026-01-01T00:00:00.000Z' },
       },
     }));
 
@@ -254,7 +254,7 @@ describe('runUpdate (T6)', () => {
 
     expect(spawn).toHaveBeenCalledWith(
       expect.anything(),
-      ['install', '--force', '--llm', 'gemini', '--skill', 'pm', '--workflows', 'all'],
+      ['install', '--force', '--llm', 'agy', '--skill', 'pm', '--workflows', 'all'],
       expect.anything()
     );
   });
