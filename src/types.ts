@@ -23,6 +23,11 @@ export interface Agent {
   workFolder: string;
   sessionId?: string;
   os?: 'windows' | 'macos' | 'linux';
+  /** Windows shell this member's OS commands should target. Only meaningful
+   *  when os is 'windows' -- non-windows members leave this unset. Set by
+   *  the Windows shell probe (apra-fleet-7dir.1.3) or an explicit operator
+   *  override on register_member/update_member. */
+  shell?: 'gitbash' | 'pwsh7' | 'powershell5';
   createdAt: string;
   lastUsed?: string;
   icon?: string;
@@ -30,6 +35,13 @@ export interface Agent {
   gitRepos?: string[];
   vcsProvider?: 'github' | 'bitbucket' | 'azure-devops';
   vcsTokenExpiresAt?: string;  // ISO 8601
+  /** The label/scopeUrl actually used for the LAST provision_vcs_auth deploy
+   *  on this agent. scheduleCredentialCleanup's timer reads these back so the
+   *  eventual revoke targets the exact same credential-helper file/config-key
+   *  pair the deploy wrote, instead of guessing at unlabeled/default-host
+   *  values that may belong to a different, still-valid credential. */
+  vcsCredentialLabel?: string;
+  vcsCredentialScopeUrl?: string;
   llmProvider?: LlmProvider;  // default: 'claude' for backwards compat
   modelCheap?: string;
   modelStandard?: string;

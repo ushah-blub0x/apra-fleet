@@ -5,7 +5,7 @@ import { getStrategy } from '../services/strategy.js';
 import { getOsCommands } from '../os/index.js';
 import { wrapPowerShellEncoded } from '../os/windows.js';
 import { getProvider } from '../providers/index.js';
-import { getAgentOS } from '../utils/agent-helpers.js';
+import { getAgentOS, getAgentShell } from '../utils/agent-helpers.js';
 import { memberIdentifier, resolveMember } from '../utils/resolve-member.js';
 import { removeKnownHost } from '../services/known-hosts.js';
 import { writeStatusline, readMemberStatus } from '../services/statusline.js';
@@ -55,7 +55,7 @@ export async function removeMember(input: RemoveMemberInput): Promise<string> {
     try {
       const conn = await strategy.testConnection();
       if (conn.ok) {
-        const cmds = getOsCommands(getAgentOS(agent));
+        const cmds = getOsCommands(getAgentOS(agent), getAgentShell(agent));
         const exec = async (cmd: string) => {
           const r = await strategy.execCommand(cmd, 15000);
           return r.stdout;
@@ -73,11 +73,16 @@ export async function removeMember(input: RemoveMemberInput): Promise<string> {
           await strategy.execCommand(cmd, 10000).catch(() => {});
         }
 
-        // VCS auth revoke: remove git credential helper if a VCS provider is configured
+        // VCS auth revoke: remove git credential helper if a VCS provider is configured.
+        // Must pass the SAME label/scopeUrl persisted at provision time (see
+        // credential-cleanup.ts) -- omitting them targets the unlabeled/
+        // default-host credential-helper file/config-key pair instead of the
+        // one actually deployed, leaving the real token file orphaned,
+        // unrevoked, on a machine that is being decommissioned.
         if (agent.vcsProvider) {
           const vcsService = vcsProviders[agent.vcsProvider];
           if (vcsService) {
-            await vcsService.revoke(agent, cmds, exec).catch(() => {});
+            await vcsService.revoke(agent, cmds, exec, agent.vcsCredentialLabel, agent.vcsCredentialScopeUrl).catch(() => {});
           }
         }
 

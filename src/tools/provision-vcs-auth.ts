@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { getStrategy } from '../services/strategy.js';
 import { getOsCommands } from '../os/index.js';
-import { getAgentOS, touchAgent, checkVcsTokenExpiry } from '../utils/agent-helpers.js';
+import { getAgentOS, getAgentShell, touchAgent, checkVcsTokenExpiry } from '../utils/agent-helpers.js';
 import { memberIdentifier, resolveMember } from '../utils/resolve-member.js';
 import { updateAgent } from '../services/registry.js';
 import { credentialResolve } from '../services/credential-store.js';
@@ -60,33 +60,29 @@ export const provisionVcsAuthSchema = z.object({
   // Azure DevOps fields
   org_url: z.string().optional().describe('Azure DevOps organization URL (e.g. https://dev.azure.com/myorg)'),
   pat: z.string().optional().describe('Azure DevOps personal access token. Supports {{secure.NAME}} token — value is resolved from the credential store before use.'),
+  // apra-fleet-5co8.5.1: OPTIONAL, caller-supplied -- Azure DevOps exposes no
+  // API to query a PAT's expiry back, so this must come from the operator
+  // (the date they picked in the "Set expiration" step when creating the
+  // PAT; see skills/fleet/auth-azdevops.md). Deliberately NOT the
+  // credential-store's own TTL (credential_store_set ttl_seconds): that
+  // mechanism DELETES the stored secret on a resolve past its TTL, which is
+  // why e.g. the fleet-e2e-ado store entry is set up with no store-side TTL
+  // at all -- conflating the two would silently start deleting a credential
+  // whose PAT is merely nearing expiry, not gone. This field only ever flows
+  // into deploy metadata to warn/cleanup, never to delete a stored secret.
+  // A malformed value here is NOT harmless: it is truthy, so it reaches
+  // vcsTokenExpiresAt verbatim and makes every checkVcsTokenExpiry comparison
+  // NaN, silencing the day-scale expiry warning entirely (scheduleCredentialCleanup
+  // itself now treats an unparseable expiresAt the same as an absent one --
+  // it skips scheduling rather than falling back to any default TTL -- so
+  // the risk here is the silenced warning, not an auto-revoke). Rejected at
+  // the schema boundary so no caller can construct that state.
+  pat_expires_at: z.string().refine((v) => !Number.isNaN(Date.parse(v)), {
+    message: 'pat_expires_at must be a parseable date/time (ISO 8601, e.g. 2027-08-20T00:00:00Z)',
+  }).optional().describe('ISO 8601 date/time the Azure DevOps PAT expires, as chosen when creating the token. Propagated to the member registry so provisioning can warn when the PAT is nearing expiry.'),
 });
 
 export type ProvisionVcsAuthInput = z.infer<typeof provisionVcsAuthSchema>;
-
-function buildCredentials(input: ProvisionVcsAuthInput): unknown | string {
-  switch (input.provider) {
-    case 'github': {
-      const mode = input.github_mode ?? 'github-app';
-      if (mode === 'pat') {
-        if (!input.token) return 'GitHub PAT mode requires "token" field.';
-        return { type: 'pat', token: input.token };
-      }
-      return { type: 'github-app', git_access: input.git_access, repos: input.repos };
-    }
-    case 'bitbucket': {
-      if (!input.email || !input.api_token || !input.workspace) {
-        return 'Bitbucket requires "email", "api_token", and "workspace" fields.';
-      }
-      return { email: input.email, api_token: input.api_token, workspace: input.workspace };
-    }
-    case 'azure-devops': {
-      const azPat = input.pat ?? input.token;
-      if (!input.org_url || !azPat) return 'Azure DevOps requires "org_url" and "pat" (or "token") fields.';
-      return { org_url: input.org_url, pat: azPat };
-    }
-  }
-}
 
 export async function provisionVcsAuth(input: ProvisionVcsAuthInput): Promise<string> {
   const agentOrError = resolveMember(input.member_id, input.member_name);
@@ -105,30 +101,29 @@ export async function provisionVcsAuth(input: ProvisionVcsAuthInput): Promise<st
     }
   }
 
-  // OOB fallback for absent credential fields
-  if (resolvedInput.provider === 'github' && (resolvedInput.github_mode ?? 'github-app') === 'pat' && resolvedInput.token === undefined) {
+  // OOB fallback for an absent credential field, dispatched through the
+  // resolved provider (apra-fleet-5co8.3.2). The provider owns which field its
+  // secret lives in, when it counts as missing and what the operator is asked
+  // -- no provider name and no auth-mode knowledge is left at this call site.
+  // Order is unchanged: {{secure.NAME}} resolution first, then OOB collection
+  // (an OOB-collected secret is deliberately NOT re-run through
+  // resolveSecureField), then credential assembly.
+  const missing = service.missingCredential;
+  if (missing && missing.isMissing(resolvedInput)) {
     const oob = await collectOobApiKey(agent.friendlyName, 'provision_vcs_auth', {
-      prompt: `Enter GitHub personal access token for ${agent.friendlyName}`,
+      prompt: missing.promptFor(agent.friendlyName),
     });
     if ('fallback' in oob) return oob.fallback ?? 'Error: OOB operation cancelled.';
-    resolvedInput.token = decryptPassword(oob.password!);
-  }
-  if (resolvedInput.provider === 'bitbucket' && resolvedInput.api_token === undefined) {
-    const oob = await collectOobApiKey(agent.friendlyName, 'provision_vcs_auth', {
-      prompt: `Enter Bitbucket API token for ${agent.friendlyName}`,
-    });
-    if ('fallback' in oob) return oob.fallback ?? 'Error: OOB operation cancelled.';
-    resolvedInput.api_token = decryptPassword(oob.password!);
-  }
-  if (resolvedInput.provider === 'azure-devops' && resolvedInput.pat === undefined && resolvedInput.token === undefined) {
-    const oob = await collectOobApiKey(agent.friendlyName, 'provision_vcs_auth', {
-      prompt: `Enter Azure DevOps personal access token for ${agent.friendlyName}`,
-    });
-    if ('fallback' in oob) return oob.fallback ?? 'Error: OOB operation cancelled.';
-    resolvedInput.pat = decryptPassword(oob.password!);
+    resolvedInput[missing.field] = decryptPassword(oob.password!);
   }
 
-  const creds = buildCredentials(resolvedInput);
+  // buildCredentials is still optional on VcsProviderService while the seam is
+  // being adopted; every provider registered above implements it, so an absent
+  // implementation is a wiring bug, reported rather than silently deploying
+  // undefined credentials.
+  const creds = service.buildCredentials
+    ? service.buildCredentials(resolvedInput)
+    : `Provider "${input.provider}" does not support credential assembly.`;
   if (typeof creds === 'string') return `❌ ${creds}`;
 
   const label = input.label ?? input.provider;
@@ -142,17 +137,63 @@ export async function provisionVcsAuth(input: ProvisionVcsAuthInput): Promise<st
   const conn = await strategy.testConnection();
   if (!conn.ok) return `❌ Member "${agent.friendlyName}" is offline: ${conn.error}`;
 
-  const cmds = getOsCommands(getAgentOS(agent));
+  const cmds = getOsCommands(getAgentOS(agent), getAgentShell(agent));
   const exec = async (cmd: string): Promise<string> => {
     const result = await strategy.execCommand(cmd, 15000);
     if (result.code !== 0 && result.stderr) throw new Error(result.stderr);
     return result.stdout;
   };
 
-  // Legacy migration: remove old single-file credential helpers
+  // Legacy migration: remove the pre-label, single-file credential helper
+  // (`.fleet-git-credential`, no label suffix) left by installs predating
+  // labeled credentials.
+  //
+  // This used to call gitCredentialHelperRemove(host) with NO label, which
+  // additionally ran `git config --global --unset-all
+  // credential.https://<host>.helper`. That was actively destructive, and
+  // scoping the call to `label` would NOT have fixed it: the credential-helper
+  // config key is HOST/SCOPE-scoped, not label-scoped (the same fact PR #473
+  // turned on), so every variant of that call unsets the registration for
+  // whatever credential is currently live on that host. Because this ran
+  // unconditionally BEFORE the deploy, any failure in between -- a dropped
+  // connection, a GitHub App mint error, a racing second provision for the
+  // same member -- left the member with its credential FILE present and fresh
+  // but NO git-config registration, which is exactly the state observed
+  // repeatedly on fleet-lin-dev1 on 2026-09-11 (git and `bd dolt push` both
+  // failing with "could not read Username" while the token on disk was still
+  // valid for the better part of an hour).
+  //
+  // Dropping the config half costs nothing: gitCredentialHelperWrite's own
+  // `git config --global --replace-all "credential.<url>.helper" ""` already
+  // clears every existing value of that key before re-adding the new one, on
+  // all three OS command implementations. So the unset was pure redundancy
+  // with a destructive failure mode. The FILE removal is kept (rather than
+  // dropping the step wholesale) so a pre-label install does not keep an
+  // orphaned, still-valid token on disk -- the security wart PR #473 called
+  // out.
   try {
-    await exec(cmds.gitCredentialHelperRemove(host));
+    await exec(cmds.gitCredentialHelperRemoveLegacyFile());
   } catch { /* best-effort */ }
+
+  // The agent record only tracks ONE active (label, scopeUrl) pair for
+  // cleanup purposes, and cancelCredentialCleanup() above just discarded
+  // whatever timer belonged to it. If this deploy is SUPERSEDING a different
+  // previously-provisioned credential (a different label and/or scopeUrl,
+  // or even a different provider), that superseded credential's timer is now
+  // gone forever and nothing else will ever revoke it -- explicitly revoke it
+  // here so its git-config registration and on-disk file don't stay orphaned
+  // indefinitely. A same-label/same-scopeUrl re-provision (a plain refresh)
+  // skips this: gitCredentialHelperWrite's --replace-all below overwrites the
+  // existing entry in place, so there is nothing to revoke first.
+  if (agent.vcsProvider && agent.vcsCredentialLabel !== undefined &&
+      (agent.vcsCredentialLabel !== label || agent.vcsCredentialScopeUrl !== scopeUrl)) {
+    const supersededService = providers[agent.vcsProvider];
+    if (supersededService) {
+      try {
+        await supersededService.revoke(agent, cmds, exec, agent.vcsCredentialLabel, agent.vcsCredentialScopeUrl);
+      } catch { /* best-effort */ }
+    }
+  }
 
   let deployResult;
   try {
@@ -163,10 +204,15 @@ export async function provisionVcsAuth(input: ProvisionVcsAuthInput): Promise<st
 
   if (!deployResult.success) return `❌ ${deployResult.message}`;
 
-  // Persist VCS provider and token expiry in the agent registry
+  // Persist VCS provider, token expiry, and the exact label/scopeUrl this
+  // deploy used, so a later cleanup timer (credential-cleanup.ts) revokes the
+  // SAME credential-helper file/config-key pair, not an unlabeled/default-host
+  // guess that could clobber a different, still-valid credential.
   updateAgent(agent.id, {
     vcsProvider: input.provider,
     vcsTokenExpiresAt: deployResult.metadata?.expiresAt,
+    vcsCredentialLabel: label,
+    vcsCredentialScopeUrl: scopeUrl,
   });
 
   // Schedule auto-cleanup when token expires
@@ -175,7 +221,7 @@ export async function provisionVcsAuth(input: ProvisionVcsAuthInput): Promise<st
   // Best-effort connectivity test
   let connectivity;
   try {
-    connectivity = await service.testConnectivity(agent, exec);
+    connectivity = await service.testConnectivity(agent, exec, scopeUrl);
   } catch {
     connectivity = { success: false, message: 'connectivity test threw' };
   }
@@ -187,13 +233,29 @@ export async function provisionVcsAuth(input: ProvisionVcsAuthInput): Promise<st
     ? Object.entries(deployResult.metadata).map(([k, v]) => `  ${k}: ${v}`).join('\n')
     : '';
 
-  // Check if the just-deployed token is already near expiry
+  // Check if the just-deployed token is already near expiry. `agent` was
+  // resolved before the updateAgent() call above, so its own vcsProvider may
+  // still be stale/absent (e.g. a member's first-ever azure-devops
+  // provision) -- pass input.provider explicitly rather than relying on
+  // `agent.vcsProvider` reflecting the write that just happened.
   const expiryWarning = deployResult.metadata?.expiresAt
-    ? checkVcsTokenExpiry({ ...agent, vcsTokenExpiresAt: deployResult.metadata.expiresAt })
+    ? checkVcsTokenExpiry({ ...agent, vcsProvider: input.provider, vcsTokenExpiresAt: deployResult.metadata.expiresAt })
     : null;
+
+  // apra-fleet-5co8.43: a skipped connectivity check must never read as a
+  // verified credential just because `success` is also true on that result
+  // -- branch on the machine-detectable `skipped` field (never string-match
+  // `message`), kept generic here (no provider special-casing) since
+  // `skipped` lives on the shared VcsDeployResult contract every provider's
+  // testConnectivity() returns.
+  const verificationLine = connectivity.skipped
+    ? `⏭️ Skipped: ${connectivity.message}`
+    : connectivity.success
+      ? connectivity.message
+      : `⚠️ ${connectivity.message}`;
 
   return `✅ ${deployResult.message} on "${agent.friendlyName}"\n`
     + (meta ? meta + '\n' : '')
-    + `  Verification: ${connectivity.success ? connectivity.message : `⚠️ ${connectivity.message}`}`
+    + `  Verification: ${verificationLine}`
     + (expiryWarning ? `\n  ${expiryWarning}` : '');
 }

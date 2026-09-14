@@ -124,9 +124,22 @@ export class LinuxCommands implements OsCommands {
   }
 
   buildAgentPromptCommand(provider: ProviderAdapter, opts: PromptOptions): string {
-    const { folder } = opts;
+    const { folder, fork } = opts;
     const escapedFolder = escapeDoubleQuoted(folder);
-    const providerCmd = provider.buildPromptCommand(opts);
+    // apra-fleet-lmtg.2: fork mode seeds a NEW session from an existing one's
+    // transcript and must not also carry an ordinary resume/session-id flag
+    // (mutually exclusive intents). provider.buildPromptCommand()'s own
+    // sessionId/resuming branch predates fork descriptors, so when a fork
+    // descriptor is present and the provider supports it, build the base
+    // command with sessionId/resuming suppressed and splice in the
+    // provider's own fork invocation instead. Absent a fork descriptor (or a
+    // non-fork-capable provider), behavior is unchanged.
+    const forkFlag = (fork && provider.supportsFork?.())
+      ? provider.forkFlag?.(fork.sourceSessionId, fork.newSessionId)
+      : undefined;
+    const providerCmd = forkFlag
+      ? `${provider.buildPromptCommand({ ...opts, sessionId: undefined, resuming: undefined })} ${forkFlag}`
+      : provider.buildPromptCommand(opts);
     // Provider command starts with `cd "folder" && <cli> ...`
     // Inject PATH prepend after the cd so the binary is findable
     const cdPrefix = `cd "${escapedFolder}" && `;
@@ -256,6 +269,13 @@ export class LinuxCommands implements OsCommands {
     return `printf '#!/bin/sh\\necho "protocol=https"\\necho "host=${escapedHost}"\\necho "username=${escapedUser}"\\necho "password=${escapedToken}"\\n' > "${credFile}" && chmod 600 "${credFile}" && chmod +x "${credFile}" && git config --global --replace-all "credential.${credUrl}.helper" "" && git config --global --add "credential.${credUrl}.helper" "${credFile}"`;
   }
 
+  gitCredentialHelperRemoveLegacyFile(): string {
+    // File only -- deliberately no `git config --unset-all`. $HOME (not `~`)
+    // for the same reason gitCredentialHelperWrite uses it: `~` is not
+    // tilde-expanded inside double quotes.
+    return `rm -f "$HOME/.fleet-git-credential"`;
+  }
+
   gitCredentialHelperRemove(host: string, label?: string, scopeUrl?: string): string {
     const escapedHost = escapeDoubleQuoted(host);
     const credFile = label ? `$HOME/.fleet-git-credential-${escapeDoubleQuoted(label)}` : '$HOME/.fleet-git-credential';
@@ -315,6 +335,11 @@ export class LinuxCommands implements OsCommands {
 
   gitCurrentBranch(folder: string): string {
     return `git -C "${escapeDoubleQuoted(folder)}" branch --show-current 2>/dev/null || true`;
+  }
+
+  gitRemoteOrigin(folder: string): string {
+    const f = escapeDoubleQuoted(folder);
+    return `git -C "${f}" remote get-url origin 2>/dev/null || git -C "${f}" config --get remote.origin.url 2>/dev/null || true`;
   }
 
   // --- Process management ---
