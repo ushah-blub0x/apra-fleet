@@ -2,6 +2,66 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] -- restore config-driven HTTP KB provider selection
+
+Sprint goal: give `getKbProviders` back the provider-selection logic an
+earlier cleanup removed, so a stock, unmodified build can be pointed at a
+remote KB server by configuration alone, with the SQLite path staying
+byte-identical when no such configuration is present.
+
+What shipped:
+
+- **`getKbProviders` selects the project provider from config.** When
+  `FLEET_DIR/knowledge/config.json` (written by `kb_setup`) selects
+  `provider: "http"` with a URL and a decryptable token, the project KB
+  provider is now an `HttpKbProvider`; every other case -- no config file,
+  `provider: "sqlite"`, or a malformed/incomplete config -- degrades to the
+  existing `SqliteProvider` unchanged, with a malformed config logging one
+  loud warning instead of failing every KB tool.
+- **No new no-arg `SqliteProvider` construction.** The `HttpKbProvider` this
+  selection builds is always constructed with the already-built project
+  `SqliteProvider` as its explicit fallback, closing the specific hazard of
+  `HttpKbProvider`'s own default fallback resolving a database from the
+  wrong working directory.
+- **A `requireSqliteProject` narrowing guard** now sits in front of every KB
+  tool call site that needs `SqliteProvider`-only capabilities (list,
+  feedback, freshness sweep, reconcile/resolve-contradiction, directive
+  methods), so those operations refuse loudly and by name when the project
+  provider is remote instead of behaving unpredictably.
+- Test coverage is against real implementations only, including an
+  end-to-end test that runs `kb_setup` for real against a live local HTTP
+  server -- no mocked provider stubs. See `docs/knowledge-layer-design.md`
+  for the full selection contract and its known follow-up gaps (the
+  user-directive clamp, `kb serve`'s behavior on a remote project provider,
+  and an audit of `kb_stats` consumers now that its response is a union
+  shape).
+- **fleet-sprint's own Deploy phase now routes to Sandbox Deploy**, not the
+  production deploy path -- documented, not yet independently validated,
+  since Deploy stalled with the same timeout in both cycles of this sprint
+  for reasons unrelated to this bead's own criteria (see
+  `docs/design-regression-sandbox-lifecycle.md`).
+- The test runner now bounds each suite with a hard timeout so a suite that
+  never exits fails fast and attributably instead of stalling the whole
+  dispatch; reaping the full process tree of a timed-out suite on Windows is
+  known follow-up work, not yet implemented.
+
+Carried forward as open backlog (none block this bead's acceptance
+criteria): enforcing the user-directive pending-proposal clamp over an HTTP
+project provider; deciding `kb serve`'s behavior under an HTTP project
+provider; killing a hung test suite's whole Windows process tree on timeout;
+auditing `kb_stats` consumers against its now-union response shape;
+independently validating that the Sandbox Deploy routing fix actually
+resolves the Deploy-phase stall.
+
+### Cost analysis
+
+Budget ceiling: not set (no --budget flag) -- unlimited for this run.
+Tracked spend (priced dispatches only): $10.0737.
+Remaining budget: unknown/unbounded.
+Integ-test-runner spend: $0.0000 -- no integ-test-runner dispatch ran this sprint (no playbook found, or deploy never succeeded).
+Pricing source: all 15 priced dispatch(es) used real per-member rates (get_member_model_pricing).
+Note: dispatches using an unpriced model id are not reflected above (see N10, feedback-reassessment.md) -- this figure is a lower bound on actual spend, not a complete total, and is reported honestly rather than fabricated.
+
 ## [Unreleased] -- planner/plan-reviewer catch decompositions that contradict a bead's own NOTES corrections
 
 Sprint goal: fix a real, observed failure mode where a sprint decomposed a
