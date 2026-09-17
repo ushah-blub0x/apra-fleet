@@ -1,11 +1,17 @@
 import path from 'path';
 import fs from 'fs';
 import { SqliteProvider } from './sqlite-provider.js';
+import { HttpKbProvider } from './http-provider.js';
+import { readKbConfigFromDisk } from './kb-config.js';
 import { resolveProjectSlug } from './project-slug.js';
+import type { MemoryProvider } from './types.js';
 import { FLEET_DIR } from '../../paths.js';
 
 export interface KbProviders {
-  project: SqliteProvider;
+  // Widened from SqliteProvider so a config-selected HttpKbProvider can be
+  // returned here. `global` stays SqliteProvider on purpose: there is exactly
+  // one shared global KB and no remote story for it.
+  project: MemoryProvider;
   global: SqliteProvider;
   projectSlug: string;
 }
@@ -43,7 +49,36 @@ async function createKbProvidersForSlug(slug: string, repoPath: string): Promise
   const projectProvider = new SqliteProvider(path.join(projectDir, 'kb.sqlite'), repoPath);
   await projectProvider.init();
   const globalProvider = await getGlobalProvider();
-  return { project: projectProvider, global: globalProvider, projectSlug: slug };
+  return {
+    project: selectProjectProvider(projectProvider),
+    global: globalProvider,
+    projectSlug: slug,
+  };
+}
+
+// Every HttpKbProvider this module builds, so resetKbProviders can dispose them.
+// SqliteProvider has no dispose() (it has close()), so disposal must be narrowed
+// to HTTP providers -- and _providers holds unresolved Promises, which a sync
+// resetKbProviders cannot read .project off of. Hence a side-list.
+const _httpProviders: HttpKbProvider[] = [];
+
+/**
+ * Return the project provider the KB config selects. Stock path (no config file,
+ * or provider "sqlite") returns the already-built SqliteProvider untouched.
+ *
+ * The HTTP branch passes that same SqliteProvider as the explicit fallback:
+ * HttpKbProvider's default is a NO-ARG `new SqliteProvider()`, which resolves its
+ * database from process.cwd() rather than this repo's path.
+ */
+function selectProjectProvider(projectProvider: SqliteProvider): MemoryProvider {
+  const config = readKbConfigFromDisk();
+  if (config.provider !== 'http') {
+    return projectProvider;
+  }
+  // readKbConfigFromDisk throws on http-without-url/token, so both are present here.
+  const httpProvider = new HttpKbProvider(config.url!, config.token!, projectProvider);
+  _httpProviders.push(httpProvider);
+  return httpProvider;
 }
 
 // Keyed by (slug, repoPath), NOT slug alone and NOT a single slot. The fleet
@@ -100,6 +135,13 @@ export async function getKbProviders(cwd?: string, remoteUrl?: string): Promise<
 }
 
 export function resetKbProviders(): void {
+  // HttpKbProvider registers a process 'beforeExit' listener in its constructor;
+  // clearing the maps alone leaks one listener per reset, and a suite that resets
+  // repeatedly hits MaxListenersExceededWarning.
+  for (const httpProvider of _httpProviders) {
+    httpProvider.dispose();
+  }
+  _httpProviders.length = 0;
   _providers.clear();
   _slugCache.clear();
   _globalProvider = null;
