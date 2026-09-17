@@ -3,6 +3,7 @@ import fs from 'fs';
 import { SqliteProvider } from './sqlite-provider.js';
 import { HttpKbProvider } from './http-provider.js';
 import { readKbConfigFromDisk } from './kb-config.js';
+import type { KbConfigResult } from './kb-config.js';
 import { resolveProjectSlug } from './project-slug.js';
 import type { MemoryProvider } from './types.js';
 import { FLEET_DIR } from '../../paths.js';
@@ -62,16 +63,41 @@ async function createKbProvidersForSlug(slug: string, repoPath: string): Promise
 // resetKbProviders cannot read .project off of. Hence a side-list.
 const _httpProviders: HttpKbProvider[] = [];
 
+// my-beads-db-0cd.12: parent bead .0cd criterion 1 requires getKbProviders to
+// return SqliteProvider unchanged "in every other case, including
+// missing/malformed config" -- but readKbConfigFromDisk (bead .1) throws by
+// design on malformed JSON, provider "http" without a url/token_encrypted, or
+// an undecryptable token. Resolving the conflict per bead .12's decision:
+// readKbConfigFromDisk keeps throwing (bead .1's contract is unchanged), and
+// THIS call site catches it, degrades to the already-built SqliteProvider, and
+// logs a loud one-time warning -- never a silent downgrade, never a hard
+// failure of every kb_* tool over one bad config file.
+let _warnedMalformedKbConfig = false;
+
 /**
  * Return the project provider the KB config selects. Stock path (no config file,
  * or provider "sqlite") returns the already-built SqliteProvider untouched.
+ * A config file that fails to read (malformed JSON, http-without-url,
+ * http-without-token, undecryptable token) degrades to the same SqliteProvider,
+ * after a one-time warning -- see the note above _warnedMalformedKbConfig.
  *
  * The HTTP branch passes that same SqliteProvider as the explicit fallback:
  * HttpKbProvider's default is a NO-ARG `new SqliteProvider()`, which resolves its
  * database from process.cwd() rather than this repo's path.
  */
 function selectProjectProvider(projectProvider: SqliteProvider): MemoryProvider {
-  const config = readKbConfigFromDisk();
+  let config: KbConfigResult;
+  try {
+    config = readKbConfigFromDisk();
+  } catch (err) {
+    if (!_warnedMalformedKbConfig) {
+      _warnedMalformedKbConfig = true;
+      console.error(
+        `[kb-providers] KB config error, falling back to SqliteProvider: ${(err as Error).message}`,
+      );
+    }
+    return projectProvider;
+  }
   if (config.provider !== 'http') {
     return projectProvider;
   }
@@ -136,6 +162,20 @@ export async function getKbProviders(cwd?: string, remoteUrl?: string): Promise<
     // sets WAL + busy_timeout=5000.
     pending = createKbProvidersForSlug(slug, repoPath);
     _providers.set(key, pending);
+    // my-beads-db-0cd.12: do NOT cache a rejected promise. Without this, one
+    // failed build (e.g. a disk error, not the config-read case above which no
+    // longer throws) permanently poisons this cache key: every later call for
+    // the same (slug, repoPath) gets the same rejected promise back, and
+    // fixing whatever caused the failure never recovers without a full
+    // resetKbProviders() or process restart. This .catch() is attached purely
+    // for cleanup -- it does not consume the rejection for `pending` itself,
+    // so the original caller (and every other awaiter of this same promise)
+    // still observes the rejection normally.
+    pending.catch(() => {
+      if (_providers.get(key) === pending) {
+        _providers.delete(key);
+      }
+    });
   }
   return pending;
 }
@@ -151,4 +191,5 @@ export function resetKbProviders(): void {
   _providers.clear();
   _slugCache.clear();
   _globalProvider = null;
+  _warnedMalformedKbConfig = false;
 }

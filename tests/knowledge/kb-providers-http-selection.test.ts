@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -43,6 +43,16 @@ function writeHttpConfig(): void {
 function writeSqliteConfig(): void {
   fs.mkdirSync(KB_CONFIG_DIR, { recursive: true });
   fs.writeFileSync(KB_CONFIG_PATH, JSON.stringify({ provider: 'sqlite' }, null, 2));
+}
+
+function writeMalformedConfig(): void {
+  fs.mkdirSync(KB_CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(KB_CONFIG_PATH, '{ this is not json');
+}
+
+function writeHttpConfigMissingUrl(): void {
+  fs.mkdirSync(KB_CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(KB_CONFIG_PATH, JSON.stringify({ provider: 'http', token_encrypted: encryptPassword(FAKE_TOKEN) }, null, 2));
 }
 
 // `fallback` is private on HttpKbProvider -- a compile-time marker only. Reading
@@ -177,5 +187,87 @@ describe('resetKbProviders provider disposal', () => {
 
     expect(() => resetKbProviders()).not.toThrow();
     expect(process.listenerCount('beforeExit')).toBe(baseline);
+  });
+});
+
+// my-beads-db-0cd.12: parent bead .0cd criterion 1 requires getKbProviders to
+// return SqliteProvider unchanged "in every other case, including
+// missing/malformed config" -- but readKbConfigFromDisk (bead .1) throws by
+// design on malformed JSON / an incomplete http config. These tests pin the
+// resolution: the throw still happens inside readKbConfigFromDisk (bead .1's
+// own contract, unit-tested in kb-config.test.ts), but getKbProviders never
+// lets it escape -- it degrades to SqliteProvider and logs exactly one loud
+// warning, not a silent downgrade and not a hard failure of the whole tool.
+describe('getKbProviders degrades a malformed/misconfigured KB config to SqliteProvider (my-beads-db-0cd.12)', () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+  });
+
+  it('malformed JSON degrades to SqliteProvider, with a one-time console.error warning', async () => {
+    writeMalformedConfig();
+    const repoPath = makeRepoPath();
+
+    const providers = await getKbProviders(repoPath, REMOTE_REPO_URL);
+
+    expect(providers.project).toBeInstanceOf(SqliteProvider);
+    expect(providers.project).not.toBeInstanceOf(HttpKbProvider);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy.mock.calls[0][0]).toContain('KB config error');
+  });
+
+  it('provider "http" missing url degrades to SqliteProvider rather than throwing', async () => {
+    writeHttpConfigMissingUrl();
+    const repoPath = makeRepoPath();
+
+    const providers = await getKbProviders(repoPath, REMOTE_REPO_URL);
+
+    expect(providers.project).toBeInstanceOf(SqliteProvider);
+    expect(providers.project).not.toBeInstanceOf(HttpKbProvider);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('the warning is one-time: a second, different (slug, repoPath) call with the same bad config does not warn again', async () => {
+    writeMalformedConfig();
+    const repoPathA = makeRepoPath();
+    const repoPathB = makeRepoPath();
+
+    await getKbProviders(repoPathA, REMOTE_REPO_URL);
+    await getKbProviders(repoPathB, `${REMOTE_REPO_URL}-b`);
+
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('never throws and never returns an HttpKbProvider for a malformed config', async () => {
+    writeMalformedConfig();
+    const repoPath = makeRepoPath();
+
+    await expect(getKbProviders(repoPath, REMOTE_REPO_URL)).resolves.toBeTruthy();
+  });
+});
+
+// my-beads-db-0cd.12: getKbProviders must not cache a rejected promise --
+// otherwise one failed build (e.g. a SqliteProvider.init() failure unrelated
+// to KB config, which the fix above no longer causes) permanently poisons that
+// (slug, repoPath) cache key until resetKbProviders() or a process restart.
+describe('getKbProviders evicts a rejected provider-build promise from its cache (my-beads-db-0cd.12)', () => {
+  it('a later call for the same (slug, repoPath), after the failure is fixed, succeeds instead of replaying the same rejection', async () => {
+    const repoPath = makeRepoPath();
+    const initSpy = vi.spyOn(SqliteProvider.prototype, 'init').mockRejectedValueOnce(new Error('simulated init failure'));
+
+    await expect(getKbProviders(repoPath, REMOTE_REPO_URL)).rejects.toThrow('simulated init failure');
+
+    // The mock only rejects once (mockRejectedValueOnce) -- a second call for
+    // the exact same key must rebuild rather than returning the same rejected
+    // promise from the cache.
+    const providers = await getKbProviders(repoPath, REMOTE_REPO_URL);
+    expect(providers.project).toBeInstanceOf(SqliteProvider);
+
+    initSpy.mockRestore();
   });
 });
