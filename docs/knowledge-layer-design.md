@@ -544,18 +544,7 @@ and descope Codebase Plane to v2.
 
 ---
 
-## Known Limitations (v1)
-
-- **FTS5 dedup gap:** two entries that cover the same topic with zero keyword
-  overlap will not be merged by AUDN. Example: "never add sync I/O in hot path"
-  and "avoid blocking calls in registry" are the same rule but share no keywords.
-  Semantic/vector dedup deferred to v2 (sqlite-vec or embedding provider).
-
-- **Central service is v1.5 scope:** `HttpKbProvider` and `kb-server` are
-  implemented in Phase 4, Tasks 17-18. Users deploying before Phase 4 complete
-  will have local-only SQLite until the server is available.
-
-### Client-side provider selection
+## Client-side provider selection
 
 `getKbProviders` (the single accessor every KB tool goes through) reads
 `FLEET_DIR/knowledge/config.json` and decides between `SqliteProvider` and
@@ -602,6 +591,19 @@ HTTP-selected project provider is likewise undecided; and the `kb_stats`
 "bible" response is now a union of the sqlite and remote-provider shapes
 without every consumer auditing which shape it actually needs. Each is
 tracked as follow-up work, not part of the provider-selection contract above.
+
+---
+
+## Known Limitations (v1)
+
+- **FTS5 dedup gap:** two entries that cover the same topic with zero keyword
+  overlap will not be merged by AUDN. Example: "never add sync I/O in hot path"
+  and "avoid blocking calls in registry" are the same rule but share no keywords.
+  Semantic/vector dedup deferred to v2 (sqlite-vec or embedding provider).
+
+- **Central service is v1.5 scope:** `HttpKbProvider` and `kb-server` are
+  implemented in Phase 4, Tasks 17-18. Users deploying before Phase 4 complete
+  will have local-only SQLite until the server is available.
 
 - **AUDN auto-Delete deferred:** contradictions are flagged for human review,
   not auto-deleted. Accumulation of flagged entries is possible until a reviewer
