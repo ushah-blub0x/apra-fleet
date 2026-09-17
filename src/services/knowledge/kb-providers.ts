@@ -75,6 +75,12 @@ function selectProjectProvider(projectProvider: SqliteProvider): MemoryProvider 
   if (config.provider !== 'http') {
     return projectProvider;
   }
+  // INIT OWNERSHIP: createKbProvidersForSlug's `await projectProvider.init()` is
+  // the one and only init call site on this path. HttpKbProvider.init() does
+  // nothing but `await this.fallback.init()`, and that fallback IS this
+  // already-init'd projectProvider -- so init'ing the HTTP provider here would be
+  // a double-init of the same instance. The returned HttpKbProvider is therefore
+  // deliberately not init'd; it is not an un-inited provider.
   // readKbConfigFromDisk throws on http-without-url/token, so both are present here.
   const httpProvider = new HttpKbProvider(config.url!, config.token!, projectProvider);
   _httpProviders.push(httpProvider);
