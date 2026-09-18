@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { FLEET_DIR } from '../paths.js';
 import { createKbProviders } from '../services/knowledge/kb-providers.js';
+import { HttpKbProvider } from '../services/knowledge/http-provider.js';
 import { validateFilePaths } from '../services/knowledge/path-validation.js';
 import { encryptPassword, decryptPassword } from '../utils/crypto.js';
 import { KbCaptureRejected } from '../services/knowledge/types.js';
@@ -100,6 +101,14 @@ export async function startKbServer(port: number, generateToken: boolean, dbPath
     const overrideProvider = new SqliteProvider(dbPath, process.cwd());
     await overrideProvider.init();
     (providers as any).project = overrideProvider;
+  }
+  // KB server is a server, not a client: it must never silently become a
+  // self-proxying HttpKbProvider just because the local KB config selects
+  // provider=http. Fail fast with a single named error before binding rather
+  // than accept remote hop behavior no caller of this server asked for.
+  if (providers.project instanceof HttpKbProvider) {
+    process.stderr.write('KB server refuses an http project provider\n');
+    process.exit(1);
   }
   const provider = providers.project;
   process.stderr.write('[kb-server] project=' + providers.projectSlug + '\n');
