@@ -100,7 +100,7 @@ export async function kbCapture(input: KbCaptureInput): Promise<string> {
   let confidence = requestedConfidence;
   let content = input.content;
   let confidence_clamped = false;
-  if (requestedConfidence === 'CONFIRMED') {
+  if (requestedConfidence === 'CONFIRMED' && input.type !== 'user-directive') {
     confidence = 'INFERRED';
     confidence_clamped = true;
     content = content + '\n\n[confidence clamped: CONFIRMED requires kb_promote]';
