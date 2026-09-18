@@ -59,6 +59,16 @@ additionally needs exactly one more:
 > Observed 2026-09-16 on sprint 1fb1d292: a silent 46-minute stall in
 > `Deploy C1`, a stray server orphaned on port 31821, and `server.json`
 > destroyed while the live server kept serving unregistered.
+>
+> **This routing is machine-enforced, not advisory.** fleet-sprint's Deploy
+> phase (`packages/apra-fleet-se/fleet-sprint/phases/deploy.mjs`,
+> `resolveDeployMode()`) reads the deploy-target config it is launched with:
+> when `deploy_target.self_hosted` is true it pins the dispatch to the
+> `deploy_target.isolated_deploy_mode` the target declares (for this repo,
+> `Sandbox Deploy`) and forbids this section outright; with `self_hosted` true
+> and no isolated mode declared it refuses to dispatch at all
+> (`SelfHostedProductionDeployRefusedError`). A target that does not set
+> `deploy_target` is unaffected and follows its runbook as written.
 
 Builds from source, then installs with the `./dist` installer binary and
 `install --force`.
