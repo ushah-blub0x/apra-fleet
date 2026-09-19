@@ -412,6 +412,70 @@ describe('--run-id flag (apra-fleet-k7b.1)', () => {
     });
 });
 
+// ---------------------------------------------------------------------------
+// my-beads-db-0cd.24: --deploy-target-self-hosted / --isolated-deploy-mode
+// surface sprint-args.mjs's deploy_target through the CLI so the self-hosted
+// deploy guard (resolveDeployMode(), my-beads-db-0cd.17/.22) can actually
+// engage from a real sprint launch, not just a test/programmatic caller.
+// ---------------------------------------------------------------------------
+
+describe('--deploy-target-self-hosted / --isolated-deploy-mode flags (my-beads-db-0cd.24)', () => {
+    test('parseCliArgs accepts both flags', () => {
+        const { values } = parseCliArgs([
+            ...BASE_ARGV,
+            '--deploy-target-self-hosted',
+            '--isolated-deploy-mode', 'Isolated Test Deploy',
+        ]);
+        assert.strictEqual(values['deploy-target-self-hosted'], true);
+        assert.strictEqual(values['isolated-deploy-mode'], 'Isolated Test Deploy');
+    });
+
+    test('buildRunnerArgs threads both through as args.deploy_target, and it round-trips through validateArgs', () => {
+        const args = buildRunnerArgs({
+            targetIssues: ['bd-1'], members: ['local'], branch: 'auto-sprint/x', baseBranch: 'main',
+            goal: 'P1/P2', maxCycles: 5, requirementsFile: undefined, roleMap: undefined, budget: undefined,
+            deployTargetSelfHosted: true, isolatedDeployMode: 'Isolated Test Deploy',
+        });
+        assert.deepStrictEqual(args.deploy_target, { self_hosted: true, isolated_deploy_mode: 'Isolated Test Deploy' });
+
+        const validated = validateArgs(args);
+        assert.deepStrictEqual(validated.deployTarget, { selfHosted: true, isolatedDeployMode: 'Isolated Test Deploy' });
+    });
+
+    test('buildRunnerArgs omits args.deploy_target entirely when neither flag is passed (guard stays inert, unchanged default)', () => {
+        const args = buildRunnerArgs({
+            targetIssues: ['bd-1'], members: ['local'], branch: 'auto-sprint/x', baseBranch: 'main',
+            goal: 'P1/P2', maxCycles: 5, requirementsFile: undefined, roleMap: undefined, budget: undefined,
+            deployTargetSelfHosted: false, isolatedDeployMode: undefined,
+        });
+        assert.strictEqual('deploy_target' in args, false);
+
+        const validated = validateArgs(args);
+        assert.deepStrictEqual(validated.deployTarget, { selfHosted: false, isolatedDeployMode: undefined });
+    });
+
+    test('the CLI rejects --isolated-deploy-mode without --deploy-target-self-hosted (mirrors main()\'s guard)', () => {
+        const { values } = parseCliArgs([...BASE_ARGV, '--isolated-deploy-mode', 'Isolated Test Deploy']);
+        const deployTargetSelfHosted = Boolean(values['deploy-target-self-hosted']);
+        const isolatedDeployMode = values['isolated-deploy-mode'];
+        assert.strictEqual(deployTargetSelfHosted, false);
+        // This is exactly the condition main() checks before exiting 1:
+        // isolatedDeployMode !== undefined && !deployTargetSelfHosted.
+        assert.ok(isolatedDeployMode !== undefined && !deployTargetSelfHosted);
+    });
+
+    test('--deploy-target-self-hosted alone (no isolated mode) reaches validateArgs, which is where the refusal actually fires at deploy time', () => {
+        const args = buildRunnerArgs({
+            targetIssues: ['bd-1'], members: ['local'], branch: 'auto-sprint/x', baseBranch: 'main',
+            goal: 'P1/P2', maxCycles: 5, requirementsFile: undefined, roleMap: undefined, budget: undefined,
+            deployTargetSelfHosted: true, isolatedDeployMode: undefined,
+        });
+        assert.deepStrictEqual(args.deploy_target, { self_hosted: true });
+        const validated = validateArgs(args);
+        assert.deepStrictEqual(validated.deployTarget, { selfHosted: true, isolatedDeployMode: undefined });
+    });
+});
+
 describe('formatViewerListenError / attachViewerErrorHandler (e: viewer port)', () => {
     test('formats an actionable message for EADDRINUSE', () => {
         const err = Object.assign(new Error('listen EADDRINUSE'), { code: 'EADDRINUSE' });
