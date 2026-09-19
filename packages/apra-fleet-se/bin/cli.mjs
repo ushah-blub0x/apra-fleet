@@ -230,8 +230,13 @@ Options:
                                 path. Omitted (default): the deploy runbook is followed as
                                 written, unchanged.
       --isolated-deploy-mode <name>  The target's own name for the sandbox/isolated deploy
-                                mode its runbook offers (e.g. "Isolated Test Deploy"). Required
-                                when --deploy-target-self-hosted is passed; ignored otherwise.
+                                mode its runbook offers (e.g. "Isolated Test Deploy"). Rejected
+                                at parse time if --deploy-target-self-hosted is absent (the CLI
+                                exits 1). Passing --deploy-target-self-hosted WITHOUT this flag
+                                still parses, but the Deploy phase then refuses at dispatch time
+                                (SelfHostedProductionDeployRefusedError) since there is no isolated
+                                mode to route to -- so in practice this flag is required whenever
+                                --deploy-target-self-hosted is passed, just not enforced that early.
   -h, --help                   Show this help message.
 `.trim();
 
@@ -317,6 +322,22 @@ export async function resolveRoleMap(rawValue, deps = {}) {
     }
 
     return normalized;
+}
+
+/**
+ * True when `--isolated-deploy-mode` was passed without `--deploy-target-self-hosted`
+ * -- `resolveDeployMode()` (fleet-sprint/phases/deploy.mjs) only reads
+ * `isolatedDeployMode` when `selfHosted` is true, so that combination can never
+ * take effect. Pulled into its own pure, exported predicate (rather than an
+ * inline condition in `main()`) so a test can assert the CLI's actual rejection
+ * logic instead of re-deriving the same condition independently (my-beads-db-0cd.24
+ * reopen: the prior test asserted on its own copy of this expression, which would
+ * stay green even if `main()`'s guard were deleted).
+ * @param {{ deployTargetSelfHosted: boolean, isolatedDeployMode: string|undefined }} opts
+ * @returns {boolean}
+ */
+export function isolatedDeployModeRequiresSelfHosted({ deployTargetSelfHosted, isolatedDeployMode }) {
+    return isolatedDeployMode !== undefined && !deployTargetSelfHosted;
 }
 
 /**
@@ -630,7 +651,7 @@ async function main() {
     // --deploy-target-self-hosted (resolveDeployMode() only reads it when
     // selfHosted is true) -- fail fast here instead of silently accepting a
     // flag combination that can never take effect.
-    if (isolatedDeployMode !== undefined && !deployTargetSelfHosted) {
+    if (isolatedDeployModeRequiresSelfHosted({ deployTargetSelfHosted, isolatedDeployMode })) {
         console.error('Error: --isolated-deploy-mode requires --deploy-target-self-hosted.');
         process.exit(1);
     }

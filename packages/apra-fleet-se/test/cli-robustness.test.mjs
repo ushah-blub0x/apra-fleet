@@ -13,6 +13,7 @@ import {
     checkIssuesExistOnMember,
     formatViewerListenError,
     attachViewerErrorHandler,
+    isolatedDeployModeRequiresSelfHosted,
 } from '../bin/cli.mjs';
 import { validateArgs } from '../fleet-sprint/runner.js';
 
@@ -454,14 +455,33 @@ describe('--deploy-target-self-hosted / --isolated-deploy-mode flags (my-beads-d
         assert.deepStrictEqual(validated.deployTarget, { selfHosted: false, isolatedDeployMode: undefined });
     });
 
-    test('the CLI rejects --isolated-deploy-mode without --deploy-target-self-hosted (mirrors main()\'s guard)', () => {
+    test('the CLI rejects --isolated-deploy-mode without --deploy-target-self-hosted (calls the exported predicate main() actually uses)', () => {
         const { values } = parseCliArgs([...BASE_ARGV, '--isolated-deploy-mode', 'Isolated Test Deploy']);
         const deployTargetSelfHosted = Boolean(values['deploy-target-self-hosted']);
         const isolatedDeployMode = values['isolated-deploy-mode'];
         assert.strictEqual(deployTargetSelfHosted, false);
-        // This is exactly the condition main() checks before exiting 1:
-        // isolatedDeployMode !== undefined && !deployTargetSelfHosted.
-        assert.ok(isolatedDeployMode !== undefined && !deployTargetSelfHosted);
+        // Exercises the real production predicate (isolatedDeployModeRequiresSelfHosted,
+        // exported from bin/cli.mjs and called directly by main()'s guard) rather than
+        // re-deriving its condition here -- deleting/breaking the guard in cli.mjs
+        // would make this assertion fail.
+        assert.strictEqual(
+            isolatedDeployModeRequiresSelfHosted({ deployTargetSelfHosted, isolatedDeployMode }),
+            true
+        );
+    });
+
+    test('isolatedDeployModeRequiresSelfHosted returns false when --deploy-target-self-hosted is also passed', () => {
+        assert.strictEqual(
+            isolatedDeployModeRequiresSelfHosted({ deployTargetSelfHosted: true, isolatedDeployMode: 'Isolated Test Deploy' }),
+            false
+        );
+    });
+
+    test('isolatedDeployModeRequiresSelfHosted returns false when --isolated-deploy-mode is absent entirely', () => {
+        assert.strictEqual(
+            isolatedDeployModeRequiresSelfHosted({ deployTargetSelfHosted: false, isolatedDeployMode: undefined }),
+            false
+        );
     });
 
     test('--deploy-target-self-hosted alone (no isolated mode) reaches validateArgs, which is where the refusal actually fires at deploy time', () => {
