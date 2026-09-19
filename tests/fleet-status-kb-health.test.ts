@@ -71,6 +71,22 @@ describe('kbHealthCompactLine (T2.2)', () => {
     const line = kbHealthCompactLine(health);
     expect(line).toContain('bible: 4 promotions behind');
   });
+
+  // my-beads-db-0cd.18 (reopened): the union's second branch -- an HTTP
+  // project provider, where drift is not computable at all. bibleDriftFragment
+  // (check-status.ts:430-434) must render the named reason, not `undefined`
+  // from an unconditional `bible.drift` read, and must not claim any
+  // promotions-behind count since there is no drift number to report.
+  it('bible not computable over a remote HTTP provider renders the reason, not undefined or a promotions count', async () => {
+    const { kbHealthCompactLine } = await import('../src/tools/check-status.js');
+    const health = JSON.parse(healthyKbStatsPayload({
+      bible: { computable: false, reason: 'bible drift is not computable over a remote HTTP provider' },
+    }));
+    const line = kbHealthCompactLine(health);
+    expect(line).toContain('bible drift is not computable over a remote HTTP provider');
+    expect(line).not.toContain('undefined');
+    expect(line).not.toContain('promotions behind');
+  });
 });
 
 describe('kbHealthSummary (T2.2, degraded-safe)', () => {
