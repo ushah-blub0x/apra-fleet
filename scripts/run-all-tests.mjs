@@ -4,7 +4,7 @@
 // flaky, unrelated one) in the first suite no longer silently skips the
 // second suite entirely. Exits non-zero if either suite failed.
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -23,6 +23,70 @@ const suites = [
     { name: 'vitest', cmd: npmCmd, args: ['exec', '--', 'vitest', 'run'] },
     { name: 'apra-fleet-se', cmd: npmCmd, args: ['test', '--workspace=@apralabs/apra-fleet-se'] },
 ];
+
+// my-beads-db-0cd.16: the old spawnSync({ timeout, killSignal: 'SIGKILL' })
+// sent SIGKILL to the cmd.exe shell (shell:true is required below -- see the
+// comment at the spawn call), never to npm or the vitest workers underneath
+// it, so a Windows timeout orphaned exactly the workers this comment used to
+// claim it prevented, and those orphans went on to contend with the next
+// suite in the same run. Fixed by spawning async, owning the timer ourselves,
+// and killing the whole tree rooted at the pid THIS runner spawned:
+//   - win32: `taskkill /PID <pid> /T /F` walks Windows' own parent-pid chain
+//     for that one process, so it cannot reach an unrelated process that
+//     merely shares an image name.
+//   - POSIX: spawn with detached:true so the child becomes its own process
+//     group leader, then `process.kill(-pid, 'SIGKILL')` signals that group.
+// Both forms are scoped to descendants of our own child pid -- no kill-by-
+// name, no broad pgid/image-name sweep. That scoping matters beyond
+// correctness: my-beads-db-cc8 is an open P1 where the test suite kills the
+// live fleet server and supervisor (and any in-flight sprint with them), and
+// a wider kill here would make that worse, not just fail to fix this bug.
+function killProcessTree(pid) {
+    if (process.platform === 'win32') {
+        spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    } else {
+        try {
+            process.kill(-pid, 'SIGKILL');
+        } catch {
+            // Already dead, or never got its own group (spawn failed before we
+            // could detach it) -- nothing left to kill.
+        }
+    }
+}
+
+// Runs one suite to completion or until SUITE_TIMEOUT_MS elapses, whichever
+// comes first. Resolves (never rejects) with a shape compatible with the old
+// spawnSync result plus an explicit timedOut flag driven by our own timer,
+// not inferred from the child's exit signal -- taskkill on win32 does not
+// reliably surface as `signal: 'SIGKILL'` the way a POSIX kill does.
+function runSuite(cmd, args, spawnOpts, timeoutMs) {
+    return new Promise((resolve) => {
+        const child = spawn(cmd, args, {
+            ...spawnOpts,
+            shell: true,
+            // POSIX only: makes this child the leader of a new process group so
+            // killProcessTree can target that group in isolation. Meaningless on
+            // win32 (no pgid concept), where taskkill's /T does the equivalent
+            // job by walking parent-pid chains instead.
+            detached: process.platform !== 'win32',
+        });
+
+        let timedOut = false;
+        const timer = setTimeout(() => {
+            timedOut = true;
+            killProcessTree(child.pid);
+        }, timeoutMs);
+
+        child.on('error', (error) => {
+            clearTimeout(timer);
+            resolve({ status: null, signal: null, error, timedOut });
+        });
+        child.on('exit', (status, signal) => {
+            clearTimeout(timer);
+            resolve({ status, signal, error: null, timedOut });
+        });
+    });
+}
 
 let failed = false;
 for (const suite of suites) {
@@ -53,17 +117,12 @@ for (const suite of suites) {
     const fd = fs.openSync(logPath, 'w');
     let result;
     try {
-        result = spawnSync(suite.cmd, suite.args, {
-            stdio: ['ignore', fd, fd],
-            shell: true,
-            timeout: SUITE_TIMEOUT_MS,
-            killSignal: 'SIGKILL',
-        });
+        result = await runSuite(suite.cmd, suite.args, { stdio: ['ignore', fd, fd] }, SUITE_TIMEOUT_MS);
     } finally {
         fs.closeSync(fd);
     }
 
-    const timedOut = result.error?.code === 'ETIMEDOUT' || result.signal === 'SIGKILL';
+    const timedOut = result.timedOut;
 
     // Echo a BOUNDED tail rather than the whole log: the full output is on
     // disk either way, and an unbounded write here would re-introduce the
