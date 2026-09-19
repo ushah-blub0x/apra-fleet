@@ -10,6 +10,22 @@ import { encryptPassword, decryptPassword } from '../utils/crypto.js';
 import { KbCaptureRejected } from '../services/knowledge/types.js';
 import type { KBEntryInput } from '../services/knowledge/types.js';
 
+// my-beads-db-0cd.15 (reopened): startKbServer is an exported library function
+// that tests/knowledge/kb-server.test.ts imports and calls IN-PROCESS. The
+// http-provider refusal used to call process.exit(1) directly, which would
+// kill the vitest worker mid-suite on any host whose KB config selects
+// provider=http, instead of failing a test. Throwing a named error (mirroring
+// SelfHostedProductionDeployRefusedError, packages/apra-fleet-se/fleet-sprint/
+// phases/deploy.mjs) keeps the refusal testable in-process while the CLI
+// entry point (src/index.ts's `kb-server` branch) still exits nonzero before
+// binding via its existing .catch(err => { ...; process.exit(1); }).
+export class KbServerHttpProviderRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'KbServerHttpProviderRefusedError';
+  }
+}
+
 const MAX_BODY_SIZE = 1_048_576; // 1MB
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 100;
@@ -107,8 +123,7 @@ export async function startKbServer(port: number, generateToken: boolean, dbPath
   // provider=http. Fail fast with a single named error before binding rather
   // than accept remote hop behavior no caller of this server asked for.
   if (providers.project instanceof HttpKbProvider) {
-    process.stderr.write('KB server refuses an http project provider\n');
-    process.exit(1);
+    throw new KbServerHttpProviderRefusedError('KB server refuses an http project provider');
   }
   const provider = providers.project;
   process.stderr.write('[kb-server] project=' + providers.projectSlug + '\n');
