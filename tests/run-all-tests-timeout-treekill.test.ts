@@ -8,7 +8,9 @@
  * spawned process (cmd.exe, because shell:true) -- it does not recurse to
  * npm/vitest workers or anything they spawn. This test drives the real
  * timeout path with a fixture that plays the role of a hung suite: it
- * spawns its own detached grandchild, records both pids, then idles forever.
+ * spawns its own grandchild (same process group -- see the fixture's own
+ * comment for why it must NOT be detached), records both pids, then idles
+ * forever.
  * A shim `npm`/`npm.cmd` placed first on PATH runs the fixture instead of
  * the real npm, so no real suite is ever invoked.
  *
@@ -65,16 +67,33 @@ function killIfAlive(pid: number): void {
     }
 }
 
+// my-beads-db-0cd.21 (reopened): scripts/run-all-tests.mjs writes each
+// suite's full log to os.tmpdir()/apra-fleet-tests-<suiteName>-<pid>.log
+// (its OWN pid, i.e. the pid of the nested run-all-tests.mjs process this
+// test spawns below) -- deliberately outside any tmpDir it's handed, since
+// that is the runner's real log location, not a location this test controls.
+// The bead's own criterion is "no files outside the test temp dir", so this
+// test must clean those two files up itself once it has the pid.
+const RUN_ALL_TESTS_LOG_SUITE_NAMES = ['vitest', 'apra-fleet-se'];
+
+function runAllTestsLogPaths(pid: number): string[] {
+    return RUN_ALL_TESTS_LOG_SUITE_NAMES.map((name) =>
+        path.join(os.tmpdir(), `apra-fleet-tests-${name}-${pid}.log`),
+    );
+}
+
 describe('run-all-tests.mjs: timeout kills the whole process tree (my-beads-db-0cd.21)', () => {
     let tmpDir: string;
     let binDir: string;
     let pidFile: string;
+    let runnerPid: number | undefined;
 
     beforeEach(() => {
         tmpDir = path.join(os.tmpdir(), `fleet-test-0cd21-${Date.now()}-${Math.random().toString(36).slice(2)}`);
         binDir = path.join(tmpDir, 'bin');
         fs.mkdirSync(binDir, { recursive: true });
         pidFile = path.join(tmpDir, 'pids.jsonl');
+        runnerPid = undefined;
 
         // Shim npm/npm.cmd: ignores its args and runs the fixture instead,
         // so run-all-tests.mjs never invokes the real vitest/apra-fleet-se
@@ -105,6 +124,14 @@ describe('run-all-tests.mjs: timeout kills the whole process tree (my-beads-db-0
             }
         }
 
+        // Clean up the nested runner's own log files -- see the comment above
+        // runAllTestsLogPaths for why these land outside tmpDir.
+        if (runnerPid !== undefined) {
+            for (const logPath of runAllTestsLogPaths(runnerPid)) {
+                fs.rmSync(logPath, { force: true });
+            }
+        }
+
         for (let attempt = 0; attempt < 10; attempt++) {
             try {
                 fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -131,6 +158,7 @@ describe('run-all-tests.mjs: timeout kills the whole process tree (my-beads-db-0
                 env,
                 stdio: 'ignore',
             });
+            runnerPid = child.pid;
             child.on('error', reject);
             child.on('exit', (code) => resolve(code));
         });
