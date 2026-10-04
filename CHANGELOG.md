@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] -- kb_demote: the trust ladder is now two-way
+
+The Knowledge Bank gained `kb_demote`, the down rung of the trust ladder (CONFIRMED ->
+INFERRED -> UNVERIFIED, one rung per call, UNVERIFIED a no-op floor). It is the "I am now
+less certain" path, distinct from `kb_feedback`/`kb_resolve_contradiction` (a claim proven
+wrong) and from `kb_invalidate` (file-staleness only, no confidence semantics). It refuses
+superseded entries, any `user-directive` (directive state stays human-terminal only), a
+trivial reason (under 20 characters), and evidence files that do not resolve or traverse
+outside the repo. A demoted entry is re-offered for promotion only once its cited basis
+changes (the D6 re-offer rule), and two bible-export safeguards keep a local demotion from
+being silently invisible: the cold-seed path skips a bible entry whose local row sits below
+CONFIRMED on a demotion, and a bible shrink whose every missing id was explicitly demoted
+locally auto-commits as the intentional removal it is, rather than being refused like any
+other shrink. The reviewer role can now return demotion decisions in its structured output
+(`kb_demotions`) alongside promotions, with the same evidence floor. See
+`docs/kb-trust-model.md` for the full contract.
+
 ## [Unreleased] -- Supervisor serves beads from a cached, tip-checked view
 
 The supervisor now reads the beads backlog through one shared cached view that refreshes via the
