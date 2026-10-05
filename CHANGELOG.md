@@ -19,6 +19,21 @@ other shrink. The reviewer role can now return demotion decisions in its structu
 (`kb_demotions`) alongside promotions, with the same evidence floor. See
 `docs/kb-trust-model.md` for the full contract.
 
+```
+Budget ceiling: not set (no --budget flag) -- unlimited for this run.
+Tracked spend (priced dispatches only): $37.3904.
+Remaining budget: unknown/unbounded.
+Integ-test-runner spend: $0.7075 across 3 dispatch(es) this sprint (a subset of the tracked spend above, broken out of overhead/doer/reviewer).
+Pricing source: all 40 priced dispatch(es) used real per-member rates (get_member_model_pricing).
+Note: dispatches using an unpriced model id are not reflected above (see N10, feedback-reassessment.md) -- this figure is a lower bound on actual spend, not a complete total, and is reported honestly rather than fabricated.
+```
+
+Carried forward as open backlog: hardening a host-side BEADS_DIR-leak gap in the sandbox seed
+script (surfaced by this sprint's own regression pass, not caused by it); a stale
+kb_promote-sole-path claim in `docs/kb-trust-model.md`; the memory-contract citation rot guard's
+deliberate narrowing to one field, leaving a sibling field's citations stale; and cross-repo
+entries observed in a sprint's promotion-candidate block warranting a repo-scoping investigation.
+
 ## [Unreleased] -- Supervisor serves beads from a cached, tip-checked view
 
 The supervisor now reads the beads backlog through one shared cached view that refreshes via the
