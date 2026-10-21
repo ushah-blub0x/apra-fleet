@@ -742,6 +742,50 @@ Run `kb_setup` with `remote` and `token` to write this. Do not write
   and a warning is printed to stderr.
 - **Process exit**: if the queue is non-empty on exit, a warning is emitted.
 
+### Repository identity
+
+A remote KB server sees which repository each request comes from. The
+identity is derived by fleet from the calling session's KB anchor -- it is
+never chosen by the agent, and no `kb_*` tool takes it as an argument.
+
+- **`X-Repository`** is sent on EVERY request (capture, query, context,
+  invalidate, prime). Its value is the normalised origin remote: `host/path`
+  with a lowercase host, and scheme, credentials (user, password, tokens),
+  port, query, trailing `.git` and trailing `/` stripped. Existing `%XX`
+  escapes are kept; spaces, non-ASCII and control bytes are percent-encoded
+  (UTF-8), so the value is always printable ASCII. For example
+  `https://user:pass@Host.Example:8443/org/My Project/_git/repo.git` becomes
+  `host.example/org/My%20Project/_git/repo`. The raw remote URL is never
+  sent or logged.
+- **`X-Repository-Commit`** is sent on captures only, with `git rev-parse HEAD`
+  of the anchor folder read at capture time. It is sent only for a local
+  folder: a remote member's folder (another host) gets its identity from the
+  member's recorded origin URL and never has git run against it, so no commit
+  is sent.
+- A folder without an origin remote sends neither header (absent, never
+  empty).
+- A capture or invalidate queued while the server is unreachable keeps the
+  identity and commit it had when queued, and replays with them.
+
+**Cross-repository reads.** `kb_query`, `kb_context` and `kb_session_prime`
+accept `all_repositories: true`. A server may limit results to the caller's
+repository and team-wide entries by default; the flag asks it to also return
+entries captured in other repositories. It is sent only as the query
+parameter `all_repositories=true` (on query, context and prime), never in a
+request body.
+
+**Entry origin.** Entries returned by `kb_query` and `kb_session_prime`, and
+per-file results returned by `kb_context`, may carry `repository` and
+`repository_commit` from the server. Fleet passes them through unchanged.
+
+**Member sessions.** A MEMBER session answers CONFIRMED reads from its local
+checkout bible view, and its INFERRED/UNVERIFIED reads are refused under an
+HTTP KB, so `all_repositories` and the entry origin fields do not apply
+there: the flag is accepted and changes nothing.
+
+This is provenance, not access control: the headers tell a server where an
+entry came from; they do not authenticate or authorise anything.
+
 ### Future: Postgres
 
 To add a Postgres backend, implement `MemoryProvider` in a new class and update

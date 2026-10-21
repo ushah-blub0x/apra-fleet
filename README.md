@@ -254,6 +254,8 @@ For servers that issue short-lived tokens, pass `--token_command <cmd>` instead
 of `--token` (mutually exclusive); the command is re-run when the token nears
 expiry or on a 401. `request_timeout_ms` sets the per-request timeout. See
 [docs/knowledge-layer.md](docs/knowledge-layer.md).
+Each request to the remote KB carries the caller's repository identity -- see
+[Repository identity](docs/knowledge-layer.md#repository-identity).
 
 **The provider config is install-wide, not per repo.** There is one
 `knowledge/config.json` per fleet install, so pointing it at a remote KB
