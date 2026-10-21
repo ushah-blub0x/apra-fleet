@@ -334,7 +334,7 @@ export async function getKbProviders(cwd?: string, remoteUrl?: string): Promise<
   // The selection also depends on whether a remoteUrl was supplied (it decides
   // where the repository identity comes from and whether a commit is read), so
   // it is keyed on that too; the base SQLite providers stay keyed per (slug, repoPath).
-  const selectionKey = `${key} ${remoteUrl ?? ''}`;
+  const selectionKey = `${key}\0${remoteUrl ?? ''}`;
   const configFingerprint = kbConfigFingerprint();
   const current = _selections.get(selectionKey);
   if (current && current.configFingerprint === configFingerprint) {
