@@ -86,9 +86,13 @@ export interface KBEntry {
   promoted_at?: string;
   use_count: number;
   last_accessed?: string;
+  // Origin of the entry as reported by a remote KB server (provenance only).
+  // Absent from the local SQLite store; passed through unchanged from HTTP responses.
+  repository?: string | null;
+  repository_commit?: string | null;
 }
 
-export type KBEntryInput = Omit<KBEntry, 'id' | 'stale' | 'created_at' | 'superseded_at' | 'use_count' | 'last_accessed'>;
+export type KBEntryInput = Omit<KBEntry, 'id' | 'stale' | 'created_at' | 'superseded_at' | 'use_count' | 'last_accessed' | 'repository' | 'repository_commit'>;
 
 // T2.1 (F4, D3, R4): internal-only options for SqliteProvider.capture(). This is
 // a SECOND parameter of capture() -- deliberately NOT a field of KBEntryInput --
@@ -183,6 +187,15 @@ export interface QueryOptions {
   l1_only?: boolean;
   limit?: number;
   ids?: string[];
+  // Ask a remote KB server to also return entries captured in other
+  // repositories. Sent only as a query parameter; local providers ignore it.
+  all_repositories?: boolean;
+}
+
+/** Options for MemoryProvider.context beyond its positional filters. */
+export interface ContextOptions {
+  /** Same meaning as QueryOptions.all_repositories. */
+  all_repositories?: boolean;
 }
 
 export interface KBResult {
@@ -198,6 +211,10 @@ export interface FileContextResult {
   summary?: string;
   content_hash?: string;
   entry_id?: string;
+  // Origin of the entry as reported by a remote KB server (provenance only).
+  // Absent from the local SQLite store; passed through unchanged from HTTP responses.
+  repository?: string | null;
+  repository_commit?: string | null;
 }
 
 export interface PrimeOptions {
@@ -211,6 +228,9 @@ export interface PrimeOptions {
   exclude_disputed?: boolean;
   // MEMBER own-scope tag filter (see EntryTrustFilter.owner_tag). Internal only.
   owner_tag?: string;
+  // Same meaning as QueryOptions.all_repositories. The HTTP provider sends it
+  // as a query parameter and never in the prime request body.
+  all_repositories?: boolean;
 }
 
 export interface PrimedContext {
@@ -311,7 +331,14 @@ export interface MemoryProvider {
   init(): Promise<void>;
   capture(input: KBEntryInput): Promise<{ id: string; audn_decision: AudnDecision }>;
   query(opts: QueryOptions): Promise<KBResult>;
-  context(files: string[], confidence?: Confidence[], excludeDisputed?: boolean): Promise<FileContextResult[]>;
+  // ownerTag: MEMBER own-scope filter, SQLite only (the HTTP provider refuses it).
+  context(
+    files: string[],
+    confidence?: Confidence[],
+    excludeDisputed?: boolean,
+    ownerTag?: string,
+    options?: ContextOptions,
+  ): Promise<FileContextResult[]>;
   invalidate(files: string[]): Promise<{ invalidated: number }>;
   // Id-level DISCARD: sets superseded_at (and stale) so the entry drops from every
   // read path; the row is kept. ownerTag restricts the call to entries carrying

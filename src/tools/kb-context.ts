@@ -4,11 +4,13 @@ import { getSelfReadKb, type KbAnchor } from '../services/knowledge/kb-self.js';
 import type { KbProviders } from '../services/knowledge/kb-providers.js';
 import { requireSqliteProject } from '../services/knowledge/require-sqlite-project.js';
 import { validateFilePaths } from '../services/knowledge/path-validation.js';
+import { allRepositoriesSchema } from '../services/knowledge/kb-all-repositories.js';
 
 export const kbContextSchema = z.object({
   confidence: z.array(z.enum(['CONFIRMED', 'INFERRED', 'UNVERIFIED'])).min(1).optional()
     .describe('Only consider cached file entries whose confidence tier is in this list. Default when omitted: ["CONFIRMED","INFERRED"], undisputed entries only -- a context-cache entry is verified by its content hash, and captures are stored at most INFERRED, so a CONFIRMED-only default would report almost every file missing. UNVERIFIED entries are considered only when listed explicitly.'),
   files: z.array(z.string()).min(1).describe('File paths to check freshness for'),
+  all_repositories: allRepositoriesSchema,
   // Removed pre-redesign scope keys: declared only so a caller still passing one
   // is refused with E-SCOPE-KEY-REMOVED instead of silently re-scoped.
   ...KB_REMOVED_SCOPE_KEYS_SHAPE,
@@ -68,7 +70,11 @@ export async function kbContext(input: KbContextInput, anchor?: KbAnchor): Promi
   } else if (read.ownerTag !== undefined) {
     results = await requireSqliteProject(providers.project, 'kb_context').context(input.files, confidence, excludeDisputed, read.ownerTag);
   } else {
-    results = await providers.project.context(input.files, confidence, excludeDisputed);
+    // Only this branch can reach a remote KB (the branches above are SQLite-only
+    // member reads); local providers accept and ignore the flag.
+    results = await providers.project.context(
+      input.files, confidence, excludeDisputed, undefined, { all_repositories: input.all_repositories },
+    );
   }
 
   // Fallback to global if project has no results

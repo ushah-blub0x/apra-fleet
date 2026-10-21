@@ -964,6 +964,19 @@ responding (`src/tools/kb-query.ts` `passesTrustFilter` does this on top of
 the sqlite provider's SQL filter). Test hook: the `kb_query`
 `happy-confirmed-only` fixture and `tests/knowledge/kb-query-trust-filter.test.ts`.
 
+**REPOSITORY SCOPE.** `kb_query`, `kb_context` and `kb_session_prime` accept
+an optional boolean `all_repositories` (default false). A remote KB server
+MAY limit results to the caller's repository (sent by the implementation as
+the `X-Repository` request header, derived from the origin remote -- never
+chosen by the caller) plus team-wide entries; `all_repositories: true` asks it
+to also return entries captured in other repositories. It is sent only as
+the query parameter `all_repositories=true`, never in a request body. A local
+store, and a MEMBER session read answered from its checkout bible, MUST
+accept it and change nothing. Entries (and per-file `kb_context` results)
+MAY carry `repository` and `repository_commit` from the server; an
+implementation MUST pass them through unchanged. They are provenance, not
+access control. Test hook: `tests/knowledge/kb-all-repositories.test.ts`.
+
 **THE TEST HOOK.** The selector guard and both response shapes are checked
 by the round-trip harness at the request/happy-path level
 (`tests/roundtrip-harness.mjs`'s `kb_query` `happy` and

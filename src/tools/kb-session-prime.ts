@@ -5,8 +5,9 @@ import path from 'node:path';
 import { getSelfReadKb, type KbAnchor } from '../services/knowledge/kb-self.js';
 import { requireSqliteProject } from '../services/knowledge/require-sqlite-project.js';
 import { validateFilePaths } from '../services/knowledge/path-validation.js';
+import { allRepositoriesSchema } from '../services/knowledge/kb-all-repositories.js';
 import { getProvider } from './code-intelligence.js';
-import type { KBEntry } from '../services/knowledge/types.js';
+import type { KBEntry, QueryOptions } from '../services/knowledge/types.js';
 import { FLEET_DIR } from '../paths.js';
 
 export const kbSessionPrimeSchema = z.object({
@@ -15,6 +16,7 @@ export const kbSessionPrimeSchema = z.object({
   session_files: z.array(z.string()).optional().describe('Files the agent expects to touch this session'),
   hint_symbols: z.array(z.string()).optional().describe('Symbols likely to be relevant'),
   hint_modules: z.array(z.string()).optional().describe('Module names likely to be relevant'),
+  all_repositories: allRepositoriesSchema,
   // Removed pre-redesign scope keys: declared only so a caller still passing one
   // is refused with E-SCOPE-KEY-REMOVED instead of silently re-scoped.
   ...KB_REMOVED_SCOPE_KEYS_SHAPE,
@@ -169,6 +171,18 @@ function parseContextNeighbors(result: unknown): string[] {
   }
 }
 
+/**
+ * The neighbour-expansion query kb_session_prime sends to the project KB.
+ * Exported so its options (notably all_repositories) can be checked against a
+ * real provider without a code-intelligence index.
+ */
+export function neighborQueryOptions(
+  neighbors: string[],
+  filters: Pick<QueryOptions, 'confidence' | 'exclude_disputed' | 'owner_tag' | 'all_repositories'>,
+): QueryOptions {
+  return { fts_terms: neighbors, l1_only: true, limit: 10, include_stale: false, ...filters };
+}
+
 export async function kbSessionPrime(input: KbSessionPrimeInput, anchor?: KbAnchor): Promise<string> {
   if (input.session_files?.length) validateFilePaths(input.session_files);
 
@@ -196,6 +210,7 @@ export async function kbSessionPrime(input: KbSessionPrimeInput, anchor?: KbAnch
     session_files: input.session_files,
     hint_symbols: input.hint_symbols,
     hint_modules: input.hint_modules,
+    all_repositories: input.all_repositories,
   });
 
   // Append up to 3 global knowledge entries. D4 (T2.1): pass raw terms (a raw
@@ -266,15 +281,12 @@ export async function kbSessionPrime(input: KbSessionPrimeInput, anchor?: KbAnch
         // skipping that neighbor rather than killing the whole batch query)
         // AND OR-joins across neighbors so an entry matching ANY neighbor
         // surfaces instead of requiring ALL of them (implicit AND).
-        const neighborResult = await providers.project.query({
-          fts_terms: neighbors,
-          l1_only: true,
-          limit: 10,
-          include_stale: false,
+        const neighborResult = await providers.project.query(neighborQueryOptions(neighbors, {
           confidence,
           exclude_disputed,
           owner_tag: ownerTag,
-        });
+          all_repositories: input.all_repositories,
+        }));
 
         // Merge below direct hits: skip ids already present (direct + global),
         // mark each addition via "graph-neighbor", cap at ADDED_ENTRY_CAP.

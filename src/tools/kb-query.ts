@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { KB_REMOVED_SCOPE_KEYS_SHAPE } from '../services/knowledge/kb-removed-scope-keys.js';
 import { getSelfReadKb, type KbAnchor } from '../services/knowledge/kb-self.js';
 import { requireSqliteProject } from '../services/knowledge/require-sqlite-project.js';
+import { allRepositoriesSchema } from '../services/knowledge/kb-all-repositories.js';
 
 const L2_CONTENT_CAP = 3200;
 
@@ -28,6 +29,7 @@ export const kbQuerySchema = z.object({
     .describe('Only return entries whose confidence tier is in this list (e.g. ["CONFIRMED"]). Applies to l1_results, l2_expanded and related_claims alike. Default when omitted: ["CONFIRMED"] -- INFERRED and UNVERIFIED entries are returned only when listed explicitly. Ignored when flagged_only is true.'),
   exclude_disputed: z.boolean().optional()
     .describe('Drop entries on either side of an unresolved contradiction (flagged_for_review, or contradiction_of set). Applies to l1_results, l2_expanded and related_claims alike. Default true when confidence is omitted (CONFIRMED-undisputed default); default false when confidence is given explicitly. Ignored when flagged_only is true.'),
+  all_repositories: allRepositoriesSchema,
   // Removed pre-redesign scope keys: declared only so a caller still passing one
   // is refused with E-SCOPE-KEY-REMOVED instead of silently re-scoped.
   ...KB_REMOVED_SCOPE_KEYS_SHAPE,
@@ -65,6 +67,8 @@ export async function kbQuery(input: KbQueryInput, anchor?: KbAnchor): Promise<s
   // per-repo DB and sees only the caller's own captures (ownerTag).
   const { providers, ownerTag } = await getSelfReadKb(anchor, input.flagged_only ? undefined : input.confidence);
   if (ownerTag !== undefined) requireSqliteProject(providers.project, 'kb_query');
+  // Carried on EVERY provider call below (L1, wider retry, L2 ids fetch).
+  const all_repositories = input.all_repositories;
 
   if (input.flagged_only) {
     const flaggedOpts = {
@@ -75,6 +79,7 @@ export async function kbQuery(input: KbQueryInput, anchor?: KbAnchor): Promise<s
       include_superseded: false,
       limit: input.limit ?? 100,
       l1_only: false,
+      all_repositories,
     };
 
     const projectFlagged = await providers.project.query(flaggedOpts);
@@ -115,6 +120,7 @@ export async function kbQuery(input: KbQueryInput, anchor?: KbAnchor): Promise<s
     confidence: input.confidence,
     exclude_disputed: input.exclude_disputed,
     owner_tag: ownerTag,
+    all_repositories,
   };
 
   // The trust filter runs PER PROVIDER, before the title de-dup below: filtering
@@ -151,11 +157,11 @@ export async function kbQuery(input: KbQueryInput, anchor?: KbAnchor): Promise<s
 
   if (top5Ids.length > 0) {
     // L2 fetch: check project first, then global for IDs not found in project
-    const projectL2 = await providers.project.query({ ids: top5Ids });
+    const projectL2 = await providers.project.query({ ids: top5Ids, all_repositories });
     const projectL2Ids = new Set(projectL2.results.map(e => e.id));
     const missingIds = top5Ids.filter(id => !projectL2Ids.has(id));
     const globalL2Results = missingIds.length > 0
-      ? (await providers.global.query({ ids: missingIds })).results
+      ? (await providers.global.query({ ids: missingIds, all_repositories })).results
       : [];
 
     l2Results = [...projectL2.results, ...globalL2Results].map(e => ({

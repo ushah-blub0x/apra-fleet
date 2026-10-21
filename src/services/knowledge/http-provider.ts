@@ -12,6 +12,7 @@ import type {
   EntryTrustFilter,
   KBResult,
   FileContextResult,
+  ContextOptions,
   PrimeOptions,
   PrimedContext,
   SyncOptions,
@@ -24,6 +25,14 @@ import type {
 } from './types.js';
 
 const MAX_QUEUE_SIZE = 1000;
+
+/**
+ * Query parameters for the cross-repository opt-in: all_repositories=true only
+ * when asked, never a 'false' value, and never in a request body.
+ */
+function allRepositoriesParams(allRepositories: boolean | undefined): Record<string, string> {
+  return allRepositories ? { all_repositories: 'true' } : {};
+}
 export const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
 
 /** Repository headers for one request, captured at call (or enqueue) time. */
@@ -283,6 +292,7 @@ export class HttpKbProvider implements MemoryProvider {
     if (opts.include_superseded) params.include_superseded = 'true';
     if (opts.confidence?.length) params.confidence = opts.confidence.join(',');
     if (opts.exclude_disputed) params.exclude_disputed = 'true';
+    Object.assign(params, allRepositoriesParams(opts.all_repositories));
 
     try {
       return await this.rawRequest<KBResult>('GET', '/api/kb/query', undefined, params);
@@ -294,12 +304,24 @@ export class HttpKbProvider implements MemoryProvider {
     }
   }
 
-  async context(files: string[], confidence?: Confidence[], excludeDisputed?: boolean): Promise<FileContextResult[]> {
+  async context(
+    files: string[],
+    confidence?: Confidence[],
+    excludeDisputed?: boolean,
+    ownerTag?: string,
+    options: ContextOptions = {},
+  ): Promise<FileContextResult[]> {
+    // Own-scope filtering exists only in the local store; silently dropping it
+    // here would return other members' entries.
+    if (ownerTag !== undefined) {
+      throw new Error('kb_context own-scope (ownerTag) reads are not supported by the HTTP KB provider');
+    }
     await this.tryFlushQueue();
     try {
       const ctxParams: Record<string, string> = { files: files.join(',') };
       if (confidence?.length) ctxParams.confidence = confidence.join(',');
       if (excludeDisputed) ctxParams.exclude_disputed = 'true';
+      Object.assign(ctxParams, allRepositoriesParams(options.all_repositories));
       const result = await this.rawRequest<{ results: FileContextResult[] }>(
         'GET', '/api/kb/context', undefined, ctxParams
       );
@@ -360,11 +382,16 @@ export class HttpKbProvider implements MemoryProvider {
 
   async prime(opts: PrimeOptions): Promise<PrimedContext> {
     await this.tryFlushQueue();
+    // The flag travels as a query parameter only: servers may validate the
+    // prime body strictly, so it is kept out of the serialised object.
+    const { all_repositories: allRepositories, ...body } = opts;
     try {
-      return await this.rawRequest<PrimedContext>('POST', '/api/kb/prime', opts);
+      return await this.rawRequest<PrimedContext>(
+        'POST', '/api/kb/prime', body, allRepositoriesParams(allRepositories),
+      );
     } catch (err) {
       if (isConnectionError(err)) {
-        return this.fallback.prime(opts);
+        return this.fallback.prime(body);
       }
       throw err;
     }
