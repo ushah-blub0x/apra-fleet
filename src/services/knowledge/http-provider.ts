@@ -3,6 +3,7 @@ import https from 'node:https';
 import { randomBytes } from 'node:crypto';
 import { SqliteProvider } from './sqlite-provider.js';
 import { StaticTokenSource, TOKEN_SOURCE_FAILED, type TokenSource } from './token-source.js';
+import type { RepositoryIdentity } from './repository-identity.js';
 import type {
   MemoryProvider,
   KBEntry,
@@ -25,9 +26,22 @@ import type {
 const MAX_QUEUE_SIZE = 1000;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
 
+/** Repository headers for one request, captured at call (or enqueue) time. */
+interface RequestRepository {
+  identity?: string;
+  commit?: string;
+}
+
+// identity/commit are captured when the op is queued, so a replay carries the
+// values the caller had then -- not whatever HEAD points at by flush time.
 type QueuedOperation =
-  | { op: 'capture'; input: KBEntryInput }
-  | { op: 'invalidate'; files: string[] };
+  | { op: 'capture'; input: KBEntryInput; identity?: string; commit?: string }
+  | { op: 'invalidate'; files: string[]; identity?: string; commit?: string };
+
+export interface HttpKbProviderOptions {
+  /** Caller's repository identity, sent as X-Repository on every request. */
+  repository?: RepositoryIdentity;
+}
 
 function isConnectionError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -69,12 +83,20 @@ export class HttpKbProvider implements MemoryProvider {
   private readonly tokenSource: TokenSource;
   private readonly fallback: SqliteProvider;
   private readonly requestTimeoutMs: number;
+  private readonly repository?: RepositoryIdentity;
   readonly offlineQueue: QueuedOperation[] = [];
   private readonly beforeExitHandler: () => void;
 
   /** A string token is wrapped in a StaticTokenSource (it can never refresh). */
-  constructor(url: string, token: string | TokenSource, fallback?: SqliteProvider, requestTimeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS) {
+  constructor(
+    url: string,
+    token: string | TokenSource,
+    fallback?: SqliteProvider,
+    requestTimeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
+    options: HttpKbProviderOptions = {},
+  ) {
     this.requestTimeoutMs = requestTimeoutMs;
+    this.repository = options.repository;
     this.baseUrl = url.replace(/\/$/, '');
     this.tokenSource = typeof token === 'string' ? new StaticTokenSource(token) : token;
     this.fallback = fallback ?? new SqliteProvider();
@@ -114,24 +136,39 @@ export class HttpKbProvider implements MemoryProvider {
     method: string,
     pathname: string,
     body?: unknown,
-    queryParams?: Record<string, string>
+    queryParams?: Record<string, string>,
+    repository: RequestRepository = this.identityOnly(),
   ): Promise<T> {
     const token = await this.tokenSource.getToken();
     try {
-      return await this.sendRequest<T>(token, method, pathname, body, queryParams);
+      return await this.sendRequest<T>(token, method, pathname, body, queryParams, repository);
     } catch (err) {
       if (errorCode(err) !== 'HTTP_401' || !this.tokenSource.canRefresh) throw err;
     }
     const refreshed = await this.tokenSource.refresh();
-    return this.sendRequest<T>(refreshed, method, pathname, body, queryParams);
+    return this.sendRequest<T>(refreshed, method, pathname, body, queryParams, repository);
+  }
+
+  /** Repository headers for a non-capture request: identity only. */
+  private identityOnly(): RequestRepository {
+    return { identity: this.repository?.identity };
+  }
+
+  /** Repository headers for a capture: identity plus HEAD read right now. */
+  private identityWithCommit(): RequestRepository {
+    return {
+      identity: this.repository?.identity,
+      commit: this.repository?.resolveCommit?.(),
+    };
   }
 
   private sendRequest<T>(
     token: string,
     method: string,
     pathname: string,
-    body?: unknown,
-    queryParams?: Record<string, string>
+    body: unknown,
+    queryParams: Record<string, string> | undefined,
+    repository: RequestRepository,
   ): Promise<T> {
     return new Promise((resolve, reject) => {
       const parsedUrl = new URL(this.baseUrl);
@@ -147,6 +184,9 @@ export class HttpKbProvider implements MemoryProvider {
         'Authorization': `Bearer ${token}`,
       };
       if (bodyStr) headers['Content-Length'] = Buffer.byteLength(bodyStr).toString();
+      // Never an empty header value: an unknown identity/commit sends no header.
+      if (repository.identity) headers['X-Repository'] = repository.identity;
+      if (repository.commit) headers['X-Repository-Commit'] = repository.commit;
 
       const options = {
         hostname: parsedUrl.hostname,
@@ -194,10 +234,11 @@ export class HttpKbProvider implements MemoryProvider {
     while (this.offlineQueue.length > 0) {
       const op = this.offlineQueue[0];
       try {
+        const repository: RequestRepository = { identity: op.identity, commit: op.commit };
         if (op.op === 'capture') {
-          await this.rawRequest('POST', '/api/kb/capture', op.input);
+          await this.rawRequest('POST', '/api/kb/capture', op.input, undefined, repository);
         } else if (op.op === 'invalidate') {
-          await this.rawRequest('POST', '/api/kb/invalidate', { files: op.files });
+          await this.rawRequest('POST', '/api/kb/invalidate', { files: op.files }, undefined, repository);
         }
         this.offlineQueue.shift();
       } catch (err) {
@@ -217,13 +258,14 @@ export class HttpKbProvider implements MemoryProvider {
 
   async capture(input: KBEntryInput): Promise<{ id: string; audn_decision: AudnDecision }> {
     await this.tryFlushQueue();
+    const repository = this.identityWithCommit();
     try {
       return await this.rawRequest<{ id: string; audn_decision: AudnDecision }>(
-        'POST', '/api/kb/capture', input
+        'POST', '/api/kb/capture', input, undefined, repository
       );
     } catch (err) {
       if (isConnectionError(err)) {
-        this.enqueue({ op: 'capture', input });
+        this.enqueue({ op: 'capture', input, ...repository });
         return { id: `offline-${randomBytes(8).toString('hex')}`, audn_decision: 'add' };
       }
       throw err;
@@ -276,13 +318,14 @@ export class HttpKbProvider implements MemoryProvider {
 
   async invalidate(files: string[]): Promise<{ invalidated: number }> {
     await this.tryFlushQueue();
+    const repository = this.identityOnly();
     try {
       return await this.rawRequest<{ invalidated: number }>(
-        'POST', '/api/kb/invalidate', { files }
+        'POST', '/api/kb/invalidate', { files }, undefined, repository
       );
     } catch (err) {
       if (isConnectionError(err)) {
-        this.enqueue({ op: 'invalidate', files });
+        this.enqueue({ op: 'invalidate', files, ...repository });
         return { invalidated: 0 };
       }
       throw err;

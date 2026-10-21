@@ -7,6 +7,7 @@ import { CommandTokenSource } from './token-source.js';
 import { readKbConfigFromDisk, KB_CONFIG_PATH } from './kb-config.js';
 import type { KbConfigResult } from './kb-config.js';
 import { resolveProjectSlug } from './project-slug.js';
+import { resolveRepositoryIdentity } from './repository-identity.js';
 import type { MemoryProvider } from './types.js';
 import { FLEET_DIR } from '../../paths.js';
 import { logWarn } from '../../utils/log-helpers.js';
@@ -21,7 +22,7 @@ export interface KbProviders {
 }
 
 export async function createKbProviders(cwd?: string, remoteUrl?: string): Promise<KbProviders> {
-  return createKbProvidersForSlug(slugFor(cwd, remoteUrl), cwd ?? process.cwd());
+  return createKbProvidersForSlug(slugFor(cwd, remoteUrl), cwd ?? process.cwd(), remoteUrl);
 }
 
 // There is exactly ONE global KB, shared by every project. Now that providers
@@ -70,13 +71,25 @@ async function createBaseProvidersForSlug(slug: string, repoPath: string): Promi
   return { projectSqlite, global };
 }
 
-async function createKbProvidersForSlug(slug: string, repoPath: string): Promise<KbProviders> {
-  return withSelectedProject(await createBaseProvidersForSlug(slug, repoPath), slug, kbConfigFingerprint());
+async function createKbProvidersForSlug(slug: string, repoPath: string, remoteUrl?: string): Promise<KbProviders> {
+  const base = await createBaseProvidersForSlug(slug, repoPath);
+  return withSelectedProject(base, slug, kbConfigFingerprint(), { repoPath, remoteUrl });
 }
 
-async function withSelectedProject(base: KbBaseProviders, slug: string, configFingerprint: string): Promise<KbProviders> {
+/** Which repo a selection is for: the local folder, plus the origin when it is on another host. */
+interface SelectionRepo {
+  repoPath: string;
+  remoteUrl?: string;
+}
+
+async function withSelectedProject(
+  base: KbBaseProviders,
+  slug: string,
+  configFingerprint: string,
+  repo: SelectionRepo,
+): Promise<KbProviders> {
   return {
-    project: await selectProjectProvider(base.projectSqlite, configFingerprint),
+    project: await selectProjectProvider(base.projectSqlite, configFingerprint, repo),
     global: base.global,
     projectSlug: slug,
   };
@@ -133,7 +146,11 @@ function kbConfigFingerprint(): string {
  * HttpKbProvider's default is a NO-ARG `new SqliteProvider()`, which resolves its
  * database from process.cwd() rather than this repo's path.
  */
-async function selectProjectProvider(projectProvider: SqliteProvider, configFingerprint: string): Promise<MemoryProvider> {
+async function selectProjectProvider(
+  projectProvider: SqliteProvider,
+  configFingerprint: string,
+  repo: SelectionRepo,
+): Promise<MemoryProvider> {
   let config: KbConfigResult;
   try {
     config = readKbConfigFromDisk();
@@ -161,7 +178,14 @@ async function selectProjectProvider(projectProvider: SqliteProvider, configFing
   const tokenSource = config.tokenCommand !== undefined
     ? new CommandTokenSource({ command: config.tokenCommand, ttlSeconds: config.tokenTtlSeconds })
     : config.token!;
-  const httpProvider = new HttpKbProvider(config.url!, tokenSource, projectProvider, config.requestTimeoutMs);
+  // Repository identity (X-Repository / X-Repository-Commit) is derived here,
+  // only for the HTTP branch: a SQLite KB needs no identity and pays no git call.
+  // A supplied remoteUrl means the folder lives on another host, so the commit
+  // is never read (see resolveRepositoryIdentity).
+  const repository = resolveRepositoryIdentity(repo.repoPath, repo.remoteUrl);
+  const httpProvider = new HttpKbProvider(
+    config.url!, tokenSource, projectProvider, config.requestTimeoutMs, { repository },
+  );
   try {
     await httpProvider.init();
   } catch (err) {
@@ -261,8 +285,13 @@ function retireSelection(selection: KbSelection): void {
   );
 }
 
-async function selectProviders(slug: string, repoPath: string, key: string, configFingerprint: string): Promise<KbProviders> {
-  return withSelectedProject(await getBaseProviders(slug, repoPath, key), slug, configFingerprint);
+async function selectProviders(
+  slug: string,
+  repo: SelectionRepo,
+  key: string,
+  configFingerprint: string,
+): Promise<KbProviders> {
+  return withSelectedProject(await getBaseProviders(slug, repo.repoPath, key), slug, configFingerprint, repo);
 }
 
 // resolveProjectSlug shells out to git, so cache per (cwd, remoteUrl) pair --
@@ -302,8 +331,12 @@ export async function getKbProviders(cwd?: string, remoteUrl?: string): Promise<
   const slug = slugFor(cwd, remoteUrl);
   const repoPath = cwd ?? process.cwd();
   const key = providerKey(slug, repoPath);
+  // The selection also depends on whether a remoteUrl was supplied (it decides
+  // where the repository identity comes from and whether a commit is read), so
+  // it is keyed on that too; the base SQLite providers stay keyed per (slug, repoPath).
+  const selectionKey = `${key} ${remoteUrl ?? ''}`;
   const configFingerprint = kbConfigFingerprint();
-  const current = _selections.get(key);
+  const current = _selections.get(selectionKey);
   if (current && current.configFingerprint === configFingerprint) {
     return current.providers;
   }
@@ -312,10 +345,10 @@ export async function getKbProviders(cwd?: string, remoteUrl?: string): Promise<
   }
   const selection: KbSelection = {
     configFingerprint,
-    providers: selectProviders(slug, repoPath, key, configFingerprint),
+    providers: selectProviders(slug, { repoPath, remoteUrl }, key, configFingerprint),
   };
-  _selections.set(key, selection);
-  evictOnReject(_selections, key, selection, selection.providers);
+  _selections.set(selectionKey, selection);
+  evictOnReject(_selections, selectionKey, selection, selection.providers);
   return selection.providers;
 }
 
